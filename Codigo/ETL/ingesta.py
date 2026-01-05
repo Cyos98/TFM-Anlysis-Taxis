@@ -21,7 +21,6 @@ def tipoIngesta():
     #Comprobación todo esta instalado
     instalar()
     #Importamos las rutas del dependencias
-    global PATHS 
     PATHS = dependencias()  # obtenemos las rutas
     global url
     url = PATHS[4] #Url donde obtenemos los datos
