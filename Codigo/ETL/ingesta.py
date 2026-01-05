@@ -247,5 +247,3 @@ def ingestaComb():
                 print(f"⚠️ No se pudo borrar {filename}: {e}")
     else:
         print("⚠️ No se cargaron datos. Verifica los archivos.")
-
-tipoIngesta()
