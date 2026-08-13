@@ -1,0 +1,9 @@
+numpy==1.26.4
+joblib==1.4.2
+psycopg==3.2.9
+psycopg-binary==3.2.9
+pyarrow==17.0.0
+scikit-learn==1.5.2
+scipy==1.14.1
+threadpoolctl==3.5.0
+typing-extensions==4.12.2

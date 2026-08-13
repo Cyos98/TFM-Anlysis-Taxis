@@ -1,0 +1,98 @@
+\chapter{Movilidad urbana y contexto del problema}\label{chap:contexto}
+
+\section{La movilidad urbana como sistema de datos}
+
+La movilidad urbana es el resultado agregado de decisiones individuales condicionadas por la estructura de la ciudad, la oferta de transporte, el calendario laboral, la actividad económica y numerosos factores externos. En una gran metrópolis, estas decisiones generan patrones recurrentes ---por ejemplo, picos asociados a desplazamientos laborales---, pero también variaciones locales y episodios extraordinarios. Analizar movilidad implica, por tanto, combinar una dimensión temporal con una dimensión espacial.
+
+Los servicios de taxi y transporte bajo demanda constituyen una fuente especialmente informativa porque cada viaje representa una interacción efectiva entre una demanda y una oferta de movilidad. El origen indica dónde se materializa la necesidad de desplazamiento; el destino aproxima la dirección del flujo; la hora revela periodicidades; y la duración, la distancia y el importe permiten estudiar características económicas y operativas. Cuando se dispone de millones de observaciones, la red de viajes puede analizarse como una estructura de flujos urbanos. Riascos y Mateos estudiaron más de mil millones de viajes de taxi en Nueva York y mostraron que las matrices origen-destino permiten caracterizar lugares especialmente relevantes dentro de la red urbana~\cite{riascos2020}.
+
+Esta riqueza presenta una contrapartida: los registros de viaje no son una observación completa de la movilidad de la ciudad. Representan únicamente los servicios regulados por la TLC y reflejan las reglas, tecnologías y prácticas de captura de cada periodo. Por ello, las inferencias deben limitarse al dominio de los datos y evitar identificar automáticamente \textit{demanda de taxi} con \textit{movilidad total}.
+
+\section{La New York City Taxi and Limousine Commission}
+
+La TLC es el organismo de la ciudad de Nueva York responsable de regular diferentes modalidades de transporte de pasajeros. Además de su función regulatoria, publica conjuntos de datos de viajes con fines de transparencia, investigación y análisis. La documentación oficial indica que los registros mensuales se ponen a disposición en formato Parquet y se acompañan de diccionarios de datos específicos para Yellow Taxi, Green Taxi, FHV y HVFHV~\cite{nyctlc_tripdata,nyctlc_userguide}.
+
+Los datos se distribuyen como ficheros mensuales, circunstancia que influye directamente en el diseño del pipeline. El fichero mensual constituye una unidad natural de descubrimiento, descarga, validación y estado. En lugar de interpretar la fuente como un único dataset estático, el proyecto la modela como una secuencia temporal de activos cuya disponibilidad y esquema pueden evolucionar.
+
+\section{Yellow Taxi}
+
+El taxi amarillo o \textit{Yellow Taxi} es la modalidad más reconocible del sistema neoyorquino. Históricamente concentra una parte muy relevante de los viajes en Manhattan y dispone de un conjunto de atributos especialmente rico para el análisis económico: marcas temporales de recogida y bajada, zonas, distancia, método de pago y componentes de tarifa, entre otros. Esta riqueza lo convierte en el servicio más adecuado para validar de extremo a extremo indicadores como ingreso por viaje, ingreso por milla o distribución de propinas.
+
+Los Yellow Taxi también han sido ampliamente estudiados en la literatura. Hochmair utilizó decenas de millones de registros para analizar variaciones espacio-temporales, infraestructuras de transporte y velocidad de viaje~\cite{hochmair2016}. Safikhani et al.\ formularon la demanda como un proceso espacio-temporal y evaluaron modelos autorregresivos con regularización sobre datos de taxi amarillo de Nueva York~\cite{safikhani2020}. A partir de estos trabajos, el TFM adopta dos decisiones: utilizar la zona y la hora como unidades fundamentales y considerar la dependencia temporal como una fuente principal de capacidad predictiva.
+
+\section{Green Taxi}
+
+Los Green Taxi o \textit{Street Hail Livery} fueron concebidos para ampliar el servicio de recogida en zonas tradicionalmente menos cubiertas por los taxis amarillos. Desde la perspectiva analítica, permiten comparar patrones geográficos y económicos con Yellow Taxi utilizando un esquema parcialmente similar, aunque no idéntico.
+
+El proyecto evita forzar ambos servicios a compartir todas las columnas. En Silver se define un núcleo semántico común ---tipo de servicio, fecha de recogida, fecha de bajada, zonas, duración y campos económicos homologables---, mientras que los atributos específicos permanecen disponibles en modelos auxiliares cuando aportan información. De esta manera, la comparabilidad no exige eliminar las particularidades de cada fuente.
+
+\section{For-Hire Vehicles}
+
+La categoría FHV agrupa servicios de vehículos de alquiler con conductor gestionados mediante bases de despacho. La información publicada no contiene necesariamente el mismo nivel tarifario que los taxis tradicionales y su esquema ha evolucionado con las obligaciones regulatorias. Por ello, su principal utilidad dentro de este trabajo se centra en la movilidad y la demanda, no en una comparación económica campo a campo.
+
+Esta asimetría ejemplifica un principio general del proyecto: un modelo común debe basarse en significados equivalentes y no en nombres de columna aparentemente parecidos. Las transformaciones de Silver incorporan una matriz de correspondencia de campos y reglas por servicio y periodo, de forma que cada atributo compartido tenga una definición explícita.
+
+\section{High Volume For-Hire Vehicles}
+
+Los HVFHV representan servicios de alto volumen asociados al crecimiento de plataformas de movilidad bajo demanda. La TLC publica desde 2019 un conjunto separado y más detallado para esta categoría~\cite{nyctlc_tripdata}. Esta diferencia temporal implica que el análisis 2018--2025 no puede presentar una serie HVFHV completa desde 2018. El periodo previo sirve para Yellow, Green y FHV, mientras que las comparaciones que involucren HVFHV comienzan cuando existe cobertura específica.
+
+La incorporación de HVFHV es relevante porque la estructura del mercado de movilidad de Nueva York ha cambiado con la expansión de las plataformas de \textit{ride-hailing}. Trabajos previos han observado diferencias espaciales y temporales entre taxis tradicionales y servicios basados en aplicaciones, y han señalado la necesidad de considerar simultáneamente dependencias espaciales y temporales~\cite{faghih2019,toman2020}.
+
+\section{Taxi Zones y representación espacial}
+
+La TLC utiliza un sistema de zonas para representar orígenes y destinos. La guía oficial proporciona tanto una tabla de correspondencias como geometrías de las zonas, aproximadamente basadas en áreas vecinales de la ciudad~\cite{nyctlc_userguide}. Esta representación es especialmente adecuada para el presente trabajo por tres motivos.
+
+En primer lugar, reduce la complejidad asociada a coordenadas GPS individuales y proporciona una taxonomía estable para agregación. En segundo lugar, puede conectarse directamente con los identificadores de zona incluidos en los ficheros modernos. En tercer lugar, facilita la construcción de visualizaciones geográficas y rankings comprensibles para un usuario de negocio.
+
+La unidad espacial principal del modelo predictivo es la zona de recogida. Para cada combinación de servicio, zona y hora se calcula el número de viajes iniciados. Las zonas sin viajes deben representarse explícitamente con demanda cero cuando formen parte del universo analizado; de lo contrario, el dataset de entrenamiento estaría sesgado hacia observaciones positivas.
+
+\section{Dimensión temporal y estacionalidad}
+
+La demanda de transporte presenta ciclos de distinta escala. La hora del día captura patrones de entrada y salida laboral, ocio nocturno y movilidad hacia aeropuertos. El día de la semana distingue jornadas laborales de fines de semana. El mes y la estación recogen efectos de clima y actividad turística. Los festivos introducen excepciones recurrentes que no quedan bien descritas únicamente con el número de día.
+
+La dimensión temporal de Gold se diseña para representar estas propiedades de manera explícita. Además de atributos categóricos, el modelado puede incorporar codificaciones cíclicas. Para una variable periódica de periodo $P$, como la hora del día, se definen:
+
+\begin{equation}
+ x_{\sin}=\sin\left(2\pi\frac{x}{P}\right), \qquad
+ x_{\cos}=\cos\left(2\pi\frac{x}{P}\right).
+\end{equation}
+
+Esta representación evita que la distancia numérica entre las 23:00 y las 00:00 sea artificialmente elevada y permite a modelos lineales capturar parte de la periodicidad.
+
+\section{Impacto de la pandemia de COVID-19}
+
+La selección de 2018 como inicio del periodo responde principalmente a la posibilidad de disponer de una base pre-pandemia suficientemente amplia. La pandemia provocó cambios extraordinarios en la movilidad urbana desde 2020. En el caso de Nueva York, investigaciones recientes han analizado específicamente el impacto espacio-temporal de COVID-19 sobre la demanda de taxi, encontrando que sus efectos no fueron homogéneos entre zonas y que variables urbanas y epidemiológicas contribuyeron a explicar la variación~\cite{zhang2024covid}.
+
+En este TFM el efecto de la pandemia se estudia desde una perspectiva descriptiva y temporal. No se pretende identificar causalidad entre políticas concretas y cambios de demanda. Se comparan niveles, distribución geográfica y ritmos de recuperación entre servicios, utilizando periodos predefinidos y evitando atribuir a COVID-19 cualquier variación que pueda estar asociada a otros factores.
+
+Una consecuencia importante para el machine learning es la presencia de un cambio de régimen. Un modelo entrenado únicamente con años previos a 2020 puede fallar de forma extrema durante la disrupción; un modelo entrenado con todo el periodo puede aprender comportamientos que mezclan contextos heterogéneos. Por ello, el capítulo experimental deberá reportar explícitamente la composición temporal de entrenamiento, validación y test y, cuando sea útil, resultados segmentados por periodos.
+
+\section{Meteorología y factores externos}
+
+La demanda de taxi puede estar relacionada con condiciones meteorológicas, aunque el efecto no es necesariamente lineal ni idéntico en todos los servicios. La literatura sobre predicción de demanda de taxi considera habitualmente variables externas como meteorología, calendario o uso del suelo~\cite{safikhani2020,hybridtaxi2024}. El proyecto incorpora una fuente meteorológica oficial de NOAA/NCEI con granularidad compatible con la agregación temporal, siempre que el pipeline final garantice su disponibilidad y trazabilidad~\cite{noaa_ncei}.
+
+Entre las variables candidatas se incluyen temperatura, precipitación, nieve, viento y visibilidad. El objetivo no es crear un modelo meteorológico, sino representar condiciones que puedan modificar la preferencia relativa por un servicio de transporte. Las variables se agregan a escala horaria o diaria según la fuente y se documenta el método de alineación temporal.
+
+\section{Preguntas de negocio}
+
+La capa analítica se diseña para responder cuatro grupos de preguntas.
+
+\subsection{Evolución de la movilidad}
+
+¿Qué volumen de viajes se realiza por servicio, año, mes, día y hora? ¿Cómo cambia a lo largo del tiempo la participación relativa de los cuatro servicios analizados? ¿Qué diferencias aparecen antes, durante y después de 2020?
+
+\subsection{Distribución geográfica}
+
+¿Qué zonas concentran más recogidas y destinos? ¿Existen zonas cuyo patrón depende especialmente de una franja temporal? ¿Cómo cambia la distribución entre boroughs y servicios?
+
+\subsection{Rendimiento operativo y económico}
+
+Para los servicios con información de tarifa suficiente, ¿qué zonas y franjas presentan mayores ingresos observados por viaje, milla u hora ocupada? ¿Qué combinaciones ofrecen una relación favorable entre demanda y duración? Estas métricas no equivalen a beneficio neto, pero sirven para describir oportunidades relativas.
+
+\subsection{Predicción de demanda}
+
+Dado el historial disponible hasta un instante $t$, ¿cuántos viajes se iniciarán en cada zona una hora más tarde y veinticuatro horas más tarde? ¿Qué modelo mantiene mejor rendimiento fuera de muestra? ¿El modelo ganador es el mismo para todos los servicios?
+
+\section{Del análisis descriptivo al producto analítico}
+
+El propósito final no es producir únicamente gráficos estáticos, sino transformar las preguntas anteriores en activos reutilizables. Cada KPI debe estar asociado a una tabla Gold o a una definición SQL reproducible; cada dashboard debe consumir modelos documentados; y cada predicción debe persistir junto con el modelo, horizonte y fecha de generación. Esta disciplina conecta el análisis de movilidad con la ingeniería de datos y constituye uno de los elementos diferenciales del proyecto.

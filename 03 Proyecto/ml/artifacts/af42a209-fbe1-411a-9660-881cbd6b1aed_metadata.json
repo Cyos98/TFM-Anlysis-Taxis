@@ -1,0 +1,37 @@
+{
+  "data_version": "synthetic_hourly_v1",
+  "mode": "demo",
+  "model_run_id": "af42a209-fbe1-411a-9660-881cbd6b1aed",
+  "parameters": {
+    "horizons": [
+      1,
+      24
+    ],
+    "point_count": 34560,
+    "random_seed": 42,
+    "synthetic_demo": true,
+    "temporal_test_fraction": 0.2
+  },
+  "results": [
+    {
+      "cutoff": "2024-04-06T09:00:00",
+      "horizon_hours": 1,
+      "mae": 2.6066860401414584,
+      "r2": 0.7674788807917008,
+      "rmse": 3.445707916737932,
+      "selected_model": "hist_gradient_boosting",
+      "test_samples": 6804,
+      "wape": 0.23813918145363647
+    },
+    {
+      "cutoff": "2024-04-06T09:00:00",
+      "horizon_hours": 24,
+      "mae": 2.615770294926395,
+      "r2": 0.7655726390604645,
+      "rmse": 3.459803292402304,
+      "selected_model": "hist_gradient_boosting",
+      "test_samples": 6804,
+      "wape": 0.23896909229264324
+    }
+  ]
+}

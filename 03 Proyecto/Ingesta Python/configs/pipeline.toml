@@ -1,0 +1,39 @@
+[project]
+name = "tfm-nyc-mobility-platform"
+environment = "local"
+
+[paths]
+data_root = "/app/data"
+logs_root = "/app/logs"
+sql_root = "/app/sql/init"
+
+[database]
+host = "postgres"
+port = 5432
+name = "tfm_mobility"
+user = "tfm"
+
+[sources.tlc]
+index_url = "https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page"
+timeout_seconds = 30
+max_retries = 6
+chunk_size_bytes = 1048576
+probe_workers = 2
+download_workers = 2
+minimum_free_space_ratio = 1.20
+retry_backoff_seconds = 60
+download_start_interval_seconds = 3
+
+[modes.demo]
+# Fuente sintética local: no descarga Parquet masivos.
+start_date = "2024-01-01"
+end_date = "2024-01-31"
+services = ["yellow", "green", "fhv", "fhvhv"]
+max_files_per_service = 1
+
+[modes.full]
+# Fuente TLC oficial. La fecha final se exige por CLI.
+start_date = "2018-01-01"
+end_date = ""
+services = ["yellow", "green", "fhv", "fhvhv"]
+max_files_per_service = 0

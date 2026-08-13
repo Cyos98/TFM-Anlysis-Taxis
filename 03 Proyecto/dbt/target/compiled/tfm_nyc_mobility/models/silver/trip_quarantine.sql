@@ -1,0 +1,5 @@
+select
+    *,
+    current_timestamp as quarantined_at
+from "tfm_mobility"."staging"."stg_trip_records"
+where invalid_reason is not null

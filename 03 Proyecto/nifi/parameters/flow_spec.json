@@ -1,0 +1,449 @@
+{
+  "specification_version": 1,
+  "nifi_version": "2.10.0",
+  "parameter_contexts": [
+    {
+      "name": "TLC",
+      "description": "Fuente oficial y periodo de los Trip Record Data",
+      "parameters": [
+        {"name": "TLC_BASE_URL", "value": "https://d37ci6vzurychx.cloudfront.net/trip-data"},
+        {"name": "TLC_START_DATE", "environment": "TLC_START_DATE", "default": "2024-01-01"},
+        {"name": "TLC_END_DATE", "environment": "TLC_END_DATE", "default": "2024-01-31"},
+        {"name": "TLC_SERVICES", "environment": "TLC_SERVICES", "default": "yellow"}
+      ]
+    },
+    {
+      "name": "POSTGRES",
+      "description": "Conexión interna a PostgreSQL",
+      "parameters": [
+        {"name": "POSTGRES_HOST", "value": "postgres"},
+        {"name": "POSTGRES_PORT", "value": "5432"},
+        {"name": "POSTGRES_DATABASE", "environment": "POSTGRES_DB", "default": "tfm_mobility"},
+        {"name": "POSTGRES_USER", "environment": "POSTGRES_USER", "default": "tfm"},
+        {"name": "POSTGRES_PASSWORD", "environment": "POSTGRES_PASSWORD", "sensitive": true}
+      ]
+    },
+    {
+      "name": "PATHS",
+      "description": "Rutas persistentes internas de NiFi",
+      "parameters": [
+        {"name": "BRONZE_ROOT", "value": "/opt/nifi/data/bronze"},
+        {"name": "QUARANTINE_ROOT", "value": "/opt/nifi/data/quarantine/nifi"}
+      ]
+    },
+    {
+      "name": "PIPELINE",
+      "description": "Parámetros operacionales agregados para los Process Groups",
+      "parameters": [
+        {"name": "PIPELINE_MODE", "environment": "PIPELINE_MODE", "default": "demo"},
+        {"name": "MAX_RETRIES", "environment": "MAX_RETRIES", "default": "3"},
+        {"name": "HTTP_TIMEOUT", "environment": "HTTP_TIMEOUT", "default": "30 sec"},
+        {"name": "DBT_ENDPOINT", "value": "http://dbt:8080/run"},
+        {"name": "ML_ENDPOINT", "value": "http://ml:8081/train"},
+        {"name": "TLC_BASE_URL", "value": "https://d37ci6vzurychx.cloudfront.net/trip-data"},
+        {"name": "TLC_START_DATE", "environment": "TLC_START_DATE", "default": "2024-01-01"},
+        {"name": "TLC_END_DATE", "environment": "TLC_END_DATE", "default": "2024-01-31"},
+        {"name": "TLC_SERVICES", "environment": "TLC_SERVICES", "default": "yellow"},
+        {"name": "POSTGRES_HOST", "value": "postgres"},
+        {"name": "POSTGRES_PORT", "value": "5432"},
+        {"name": "POSTGRES_DATABASE", "environment": "POSTGRES_DB", "default": "tfm_mobility"},
+        {"name": "POSTGRES_USER", "environment": "POSTGRES_USER", "default": "tfm"},
+        {"name": "POSTGRES_PASSWORD", "environment": "POSTGRES_PASSWORD", "sensitive": true},
+        {"name": "BRONZE_ROOT", "value": "/opt/nifi/data/bronze"},
+        {"name": "QUARANTINE_ROOT", "value": "/opt/nifi/data/quarantine/nifi"}
+      ]
+    },
+    {
+      "name": "EXTERNAL_SOURCES",
+      "description": "Reservado para zonas, geometrías, calendario, festivos y meteorología",
+      "parameters": [
+        {"name": "TAXI_ZONE_LOOKUP_ENABLED", "value": "true"},
+        {"name": "WEATHER_ENABLED", "value": "false"},
+        {"name": "HOLIDAYS_ENABLED", "value": "false"}
+      ]
+    }
+  ],
+  "process_groups": [
+    {
+      "name": "00_PIPELINE_CONTROL",
+      "x": 0,
+      "y": 0,
+      "processors": [
+        {
+          "name": "Schedule pipeline run",
+          "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "Custom Text": "{\"pipeline_mode\":\"#{PIPELINE_MODE}\"}",
+            "Data Format": "Text",
+            "Mime Type": "application/json",
+            "Unique FlowFiles": "false"
+          },
+          "scheduling_strategy": "CRON_DRIVEN",
+          "scheduling_period": "0 0 3 * * ?",
+          "auto_terminate": ["success"]
+        }
+      ]
+    },
+    {
+      "name": "05_DEMO_PIPELINE",
+      "x": 0,
+      "y": 200,
+      "controller_services": [
+        {
+          "name": "Demo JSON Reader",
+          "type": "org.apache.nifi.json.JsonTreeReader",
+          "artifact": "nifi-record-serialization-services-nar",
+          "properties": {"Schema Access Strategy": "infer-schema"}
+        },
+        {
+          "name": "Demo Parquet Writer",
+          "type": "org.apache.nifi.parquet.ParquetRecordSetWriter",
+          "artifact": "nifi-parquet-nar",
+          "properties": {"Schema Access Strategy": "inherit-record-schema", "Compression Type": "SNAPPY"}
+        },
+        {
+          "name": "Demo PostgreSQL Pool",
+          "type": "org.apache.nifi.dbcp.DBCPConnectionPool",
+          "artifact": "nifi-dbcp-service-nar",
+          "properties": {
+            "Database Connection URL": "jdbc:postgresql://#{POSTGRES_HOST}:#{POSTGRES_PORT}/#{POSTGRES_DATABASE}",
+            "Database Driver Class Name": "org.postgresql.Driver",
+            "Database Driver Locations": "/opt/nifi/drivers/postgresql-42.7.11.jar",
+            "Database User": "#{POSTGRES_USER}",
+            "Password": "#{POSTGRES_PASSWORD}",
+            "Validation Query": "SELECT 1"
+          }
+        }
+      ],
+      "processors": [
+        {
+          "name": "Generate deterministic demo trips",
+          "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "Custom Text": "[{\"pickup_datetime\":\"2024-01-15 08:00:00\",\"dropoff_datetime\":\"2024-01-15 08:18:00\",\"PULocationID\":161,\"DOLocationID\":236,\"trip_distance\":3.4,\"total_amount\":24.5},{\"pickup_datetime\":\"2024-01-15 09:00:00\",\"dropoff_datetime\":\"2024-01-15 09:22:00\",\"PULocationID\":236,\"DOLocationID\":161,\"trip_distance\":4.1,\"total_amount\":29.0}]",
+            "Data Format": "Text",
+            "Mime Type": "application/json",
+            "Unique FlowFiles": "false"
+          },
+          "scheduling_period": "1 day",
+          "auto_terminate": []
+        },
+        {
+          "name": "Set demo Bronze attributes",
+          "type": "org.apache.nifi.processors.attributes.UpdateAttribute",
+          "artifact": "nifi-update-attribute-nar",
+          "properties": {
+            "filename": "yellow_tripdata_2024-01_nifi_demo.parquet",
+            "service_type": "yellow",
+            "year": "2024",
+            "month": "01"
+          },
+          "auto_terminate": []
+        },
+        {
+          "name": "Convert demo JSON to Parquet",
+          "type": "org.apache.nifi.processors.standard.ConvertRecord",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "Record Reader": "@service:Demo JSON Reader",
+            "Record Writer": "@service:Demo Parquet Writer",
+            "Include Zero Record FlowFiles": "false"
+          },
+          "auto_terminate": ["failure"]
+        },
+        {
+          "name": "Calculate demo SHA-256",
+          "type": "org.apache.nifi.processors.standard.CryptographicHashContent",
+          "artifact": "nifi-standard-nar",
+          "properties": {"Hash Algorithm": "SHA-256", "Fail When Content Empty": "true"},
+          "auto_terminate": ["failure"]
+        },
+        {
+          "name": "Write idempotent demo Bronze",
+          "type": "org.apache.nifi.processors.standard.PutFile",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "Directory": "#{BRONZE_ROOT}/demo/yellow/year=2024/month=01",
+            "Conflict Resolution Strategy": "ignore",
+            "Create Missing Directories": "true"
+          },
+          "auto_terminate": ["success", "failure"]
+        },
+        {
+          "name": "Prepare demo manifest and landing SQL",
+          "type": "org.apache.nifi.processors.standard.ReplaceText",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "Evaluation Mode": "Entire text",
+            "Replacement Strategy": "Always Replace",
+            "Replacement Value": "WITH run_row AS (INSERT INTO control.pipeline_runs (run_id, mode, status, start_date, end_date, parameters, code_version, started_at, finished_at, orchestrator, files_discovered, files_downloaded, rows_processed) VALUES ('00000000-0000-0000-0000-000000000005', 'demo', 'SUCCEEDED', DATE '2024-01-01', DATE '2024-01-31', '{\"source\":\"nifi_demo\"}'::jsonb, 'nifi-2.10.0-demo', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'nifi', 1, 1, 2) ON CONFLICT (run_id) DO UPDATE SET status = 'SUCCEEDED', finished_at = CURRENT_TIMESTAMP RETURNING run_id), file_row AS (INSERT INTO control.ingestion_files (source_kind, service_type, year, month, filename, source_url, local_path, size_bytes, sha256, row_count, status, first_run_id, last_run_id, downloaded_at, validated_at, processed_at, rows_loaded, current_run_id) SELECT 'demo', 'yellow', 2024, 1, 'yellow_tripdata_2024-01_nifi_demo.parquet', 'nifi://deterministic-demo', 'bronze/demo/yellow/year=2024/month=01/yellow_tripdata_2024-01_nifi_demo.parquet', ${fileSize}, '${'content_SHA-256'}', 2, 'PROCESSED', run_id, run_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 2, run_id FROM run_row ON CONFLICT (source_kind, service_type, year, month, filename) DO UPDATE SET sha256 = EXCLUDED.sha256, size_bytes = EXCLUDED.size_bytes, status = 'PROCESSED', last_run_id = EXCLUDED.last_run_id, current_run_id = EXCLUDED.current_run_id, processed_at = CURRENT_TIMESTAMP, rows_loaded = 2, updated_at = CURRENT_TIMESTAMP RETURNING file_id) INSERT INTO landing.trip_records (source_kind, source_file_id, source_filename, source_row_number, service_type, pickup_datetime, dropoff_datetime, pickup_location_id, dropoff_location_id, trip_distance, total_amount) SELECT 'demo', file_id, 'yellow_tripdata_2024-01_nifi_demo.parquet', trip.source_row_number, 'yellow', trip.pickup_datetime, trip.dropoff_datetime, trip.pickup_location_id, trip.dropoff_location_id, trip.trip_distance, trip.total_amount FROM file_row CROSS JOIN (VALUES (1::bigint, TIMESTAMP '2024-01-15 08:00:00', TIMESTAMP '2024-01-15 08:18:00', 161, 236, 3.4::double precision, 24.5::double precision), (2::bigint, TIMESTAMP '2024-01-15 09:00:00', TIMESTAMP '2024-01-15 09:22:00', 236, 161, 4.1::double precision, 29.0::double precision)) AS trip(source_row_number, pickup_datetime, dropoff_datetime, pickup_location_id, dropoff_location_id, trip_distance, total_amount) ON CONFLICT (source_kind, source_file_id, source_row_number) DO NOTHING"
+          },
+          "auto_terminate": ["failure"]
+        },
+        {
+          "name": "Register demo in PostgreSQL",
+          "type": "org.apache.nifi.processors.standard.PutSQL",
+          "artifact": "nifi-standard-nar",
+          "properties": {"JDBC Connection Pool": "@service:Demo PostgreSQL Pool", "Batch Size": "1"},
+          "auto_terminate": ["failure", "retry"]
+        },
+        {
+          "name": "Trigger demo dbt build",
+          "type": "org.apache.nifi.processors.standard.InvokeHTTP",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "HTTP Method": "POST",
+            "HTTP URL": "#{DBT_ENDPOINT}",
+            "Request Body Enabled": "false",
+            "Response Generation Required": "true",
+            "Connection Timeout": "30 secs",
+            "Socket Read Timeout": "30 mins"
+          },
+          "auto_terminate": ["Response", "Failure", "No Retry", "Retry"]
+        },
+        {
+          "name": "Trigger demo Python ML",
+          "type": "org.apache.nifi.processors.standard.InvokeHTTP",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "HTTP Method": "POST",
+            "HTTP URL": "#{ML_ENDPOINT}?mode=demo",
+            "Request Body Enabled": "false",
+            "Response Generation Required": "true",
+            "Connection Timeout": "30 secs",
+            "Socket Read Timeout": "30 mins"
+          },
+          "auto_terminate": ["Original", "Response", "Failure", "No Retry", "Retry"]
+        }
+      ],
+      "connections": [
+        {"name": "demo-attributes", "source": "Generate deterministic demo trips", "destination": "Set demo Bronze attributes", "relationships": ["success"]},
+        {"name": "demo-to-parquet", "source": "Set demo Bronze attributes", "destination": "Convert demo JSON to Parquet", "relationships": ["success"]},
+        {"name": "demo-parquet-hash", "source": "Convert demo JSON to Parquet", "destination": "Calculate demo SHA-256", "relationships": ["success"]},
+        {"name": "demo-write-bronze", "source": "Calculate demo SHA-256", "destination": "Write idempotent demo Bronze", "relationships": ["success"]},
+        {"name": "demo-prepare-control", "source": "Calculate demo SHA-256", "destination": "Prepare demo manifest and landing SQL", "relationships": ["success"]},
+        {"name": "demo-register-control", "source": "Prepare demo manifest and landing SQL", "destination": "Register demo in PostgreSQL", "relationships": ["success"]},
+        {"name": "demo-dbt", "source": "Register demo in PostgreSQL", "destination": "Trigger demo dbt build", "relationships": ["success"]},
+        {"name": "demo-ml", "source": "Trigger demo dbt build", "destination": "Trigger demo Python ML", "relationships": ["Original"]}
+      ]
+    },
+    {
+      "name": "10_TLC_DISCOVERY",
+      "x": 450,
+      "y": 0,
+      "processors": [
+        {
+          "name": "Trigger TLC discovery",
+          "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+          "artifact": "nifi-standard-nar",
+          "properties": {"Custom Text": "discover", "Data Format": "Text", "Unique FlowFiles": "false"},
+          "auto_terminate": []
+        },
+        {
+          "name": "Generate parametrized TLC inventory",
+          "type": "org.apache.nifi.processors.standard.ExecuteStreamCommand",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "Command Path": "/usr/bin/bash",
+            "Command Arguments": "/opt/nifi/custom-scripts/generate_tlc_inventory.sh;#{TLC_START_DATE};#{TLC_END_DATE};#{TLC_SERVICES};#{TLC_BASE_URL}",
+            "Argument Delimiter": ";",
+            "Ignore STDIN": "true",
+            "Output MIME Type": "application/x-ndjson"
+          },
+          "auto_terminate": ["original", "output stream", "nonzero status"]
+        }
+      ],
+      "connections": [
+        {"name": "trigger-discovery", "source": "Trigger TLC discovery", "destination": "Generate parametrized TLC inventory", "relationships": ["success"]}
+      ]
+    },
+    {
+      "name": "20_TLC_DOWNLOAD",
+      "x": 900,
+      "y": 0,
+      "processors": [
+        {
+          "name": "Download TLC Parquet",
+          "type": "org.apache.nifi.processors.standard.InvokeHTTP",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "HTTP Method": "GET",
+            "HTTP URL": "${source_url}",
+            "Connection Timeout": "#{HTTP_TIMEOUT}",
+            "Socket Read Timeout": "#{HTTP_TIMEOUT}",
+            "Response Generation Required": "true",
+            "Request Body Enabled": "false",
+            "Request User-Agent": "tfm-nyc-mobility-nifi/0.3"
+          },
+          "auto_terminate": ["Original", "Response", "Failure", "No Retry"]
+        },
+        {
+          "name": "Limit HTTP retries",
+          "type": "org.apache.nifi.processors.standard.RetryFlowFile",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "Retry Attribute": "retry_count",
+            "Maximum Retries": "#{MAX_RETRIES}",
+            "Penalize Retries": "true",
+            "Reuse Mode": "reset"
+          },
+          "auto_terminate": ["retry", "retries_exceeded", "failure"]
+        }
+      ],
+      "connections": [
+        {"name": "http-retry-policy", "source": "Download TLC Parquet", "destination": "Limit HTTP retries", "relationships": ["Retry"]}
+      ]
+    },
+    {
+      "name": "30_BRONZE_VALIDATION",
+      "x": 1350,
+      "y": 0,
+      "processors": [
+        {
+          "name": "Validation input placeholder",
+          "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+          "artifact": "nifi-standard-nar",
+          "properties": {"Custom Text": "validation-smoke", "Data Format": "Text", "Unique FlowFiles": "false"},
+          "auto_terminate": []
+        },
+        {
+          "name": "Calculate SHA-256",
+          "type": "org.apache.nifi.processors.standard.CryptographicHashContent",
+          "artifact": "nifi-standard-nar",
+          "properties": {"Hash Algorithm": "SHA-256", "Fail When Content Empty": "true"},
+          "auto_terminate": ["failure"]
+        },
+        {
+          "name": "Write immutable Bronze",
+          "type": "org.apache.nifi.processors.standard.PutFile",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "Directory": "#{BRONZE_ROOT}/tlc/${service_type}/year=${year}/month=${month}",
+            "Conflict Resolution Strategy": "fail",
+            "Create Missing Directories": "true"
+          },
+          "auto_terminate": ["success", "failure"]
+        }
+      ],
+      "connections": [
+        {"name": "validation-input", "source": "Validation input placeholder", "destination": "Calculate SHA-256", "relationships": ["success"]},
+        {"name": "validated-bronze", "source": "Calculate SHA-256", "destination": "Write immutable Bronze", "relationships": ["success"]}
+      ]
+    },
+    {
+      "name": "40_EXTERNAL_DATA",
+      "x": 0,
+      "y": 400,
+      "processors": [
+        {
+          "name": "Trigger external readiness log",
+          "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+          "artifact": "nifi-standard-nar",
+          "properties": {"Custom Text": "external-readiness", "Data Format": "Text", "Unique FlowFiles": "false"},
+          "auto_terminate": []
+        },
+        {
+          "name": "External sources readiness",
+          "type": "org.apache.nifi.processors.standard.LogMessage",
+          "artifact": "nifi-standard-nar",
+          "properties": {"Log Level": "info", "Log Message": "Fuentes externas preparadas; meteorología y festivos permanecen desactivados."},
+          "auto_terminate": ["success"]
+        }
+      ],
+      "connections": [
+        {"name": "external-readiness", "source": "Trigger external readiness log", "destination": "External sources readiness", "relationships": ["success"]}
+      ]
+    },
+    {
+      "name": "50_DBT_TRIGGER",
+      "x": 450,
+      "y": 400,
+      "processors": [
+        {
+          "name": "Trigger dbt build request",
+          "legacy_names": ["Error input placeholder"],
+          "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+          "artifact": "nifi-standard-nar",
+          "properties": {"Custom Text": "dbt-build", "Data Format": "Text", "Unique FlowFiles": "false"},
+          "auto_terminate": []
+        },
+        {
+          "name": "Trigger dbt build",
+          "type": "org.apache.nifi.processors.standard.InvokeHTTP",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "HTTP Method": "POST",
+            "HTTP URL": "#{DBT_ENDPOINT}",
+            "Request Body Enabled": "false",
+            "Response Generation Required": "true",
+            "Connection Timeout": "30 secs",
+            "Socket Read Timeout": "30 mins"
+          },
+          "auto_terminate": ["Original", "Response", "Failure", "No Retry", "Retry"]
+        }
+      ],
+      "connections": [
+        {"name": "dbt-trigger-request", "source": "Trigger dbt build request", "destination": "Trigger dbt build", "relationships": ["success"]}
+      ]
+    },
+    {
+      "name": "60_ML_TRIGGER",
+      "x": 900,
+      "y": 400,
+      "processors": [
+        {
+          "name": "Trigger Python ML",
+          "type": "org.apache.nifi.processors.standard.InvokeHTTP",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "HTTP Method": "POST",
+            "HTTP URL": "#{ML_ENDPOINT}?mode=#{PIPELINE_MODE}",
+            "Request Body Enabled": "false",
+            "Response Generation Required": "true",
+            "Connection Timeout": "30 secs",
+            "Socket Read Timeout": "30 mins"
+          },
+          "auto_terminate": ["Original", "Response", "Failure", "No Retry", "Retry"]
+        }
+      ]
+    },
+    {
+      "name": "90_ERROR_HANDLING",
+      "x": 1350,
+      "y": 400,
+      "processors": [
+        {
+          "name": "Error input placeholder",
+          "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+          "artifact": "nifi-standard-nar",
+          "properties": {"Custom Text": "error-smoke", "Data Format": "Text", "Unique FlowFiles": "false"},
+          "auto_terminate": []
+        },
+        {
+          "name": "Quarantine failed content",
+          "type": "org.apache.nifi.processors.standard.PutFile",
+          "artifact": "nifi-standard-nar",
+          "properties": {
+            "Directory": "#{QUARANTINE_ROOT}",
+            "Conflict Resolution Strategy": "replace",
+            "Create Missing Directories": "true"
+          },
+          "auto_terminate": ["failure"]
+        },
+        {
+          "name": "Log terminal error",
+          "type": "org.apache.nifi.processors.standard.LogMessage",
+          "artifact": "nifi-standard-nar",
+          "properties": {"Log Level": "error", "Log Message": "${filename}: ${last_error}"},
+          "auto_terminate": ["success"]
+        }
+      ],
+      "connections": [
+        {"name": "error-to-quarantine", "source": "Error input placeholder", "destination": "Quarantine failed content", "relationships": ["success"]},
+        {"name": "quarantine-to-log", "source": "Quarantine failed content", "destination": "Log terminal error", "relationships": ["success"]}
+      ]
+    }
+  ]
+}

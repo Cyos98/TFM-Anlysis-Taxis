@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: trips
+    description: Viajes comunes válidos para análisis posterior.
+    columns:
+      - name: trip_id
+        data_tests: [not_null, unique]
+      - name: pickup_datetime
+        data_tests: [not_null]
+      - name: dropoff_datetime
+        data_tests: [not_null]
+      - name: pickup_location_id
+        data_tests: [not_null]
+      - name: dropoff_location_id
+        data_tests: [not_null]
+  - name: trip_quarantine
+    description: Registros rechazados con motivo explícito.
+    columns:
+      - name: trip_id
+        data_tests: [not_null, unique]
+      - name: invalid_reason
+        data_tests: [not_null]

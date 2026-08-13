@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: stg_trip_records
+    description: Homologación inicial de campos y reglas de validez comunes.
+    columns:
+      - name: trip_id
+        data_tests: [not_null, unique]
+      - name: service_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [yellow, green, fhv, fhvhv]
+      - name: source_file_id
+        data_tests: [not_null]

@@ -1,0 +1,38 @@
+name: tfm_nyc_mobility
+version: 1.0.0
+config-version: 2
+
+profile: tfm_nyc_mobility
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+target-path: target
+clean-targets: ["target", "dbt_packages", "logs"]
+
+models:
+  tfm_nyc_mobility:
+    staging:
+      +schema: staging
+      +materialized: view
+    silver:
+      +schema: silver
+      +materialized: table
+    gold:
+      +schema: gold
+      +materialized: table
+      marts:
+        +materialized: view
+
+seeds:
+  tfm_nyc_mobility:
+    +schema: reference
+    taxi_zone_lookup:
+      +column_types:
+        location_id: integer
+
+vars:
+  profitability_scenario:
+    commission_rate: 0.20
+    variable_cost_per_mile: 0.35
+    fixed_cost_per_trip: 1.50

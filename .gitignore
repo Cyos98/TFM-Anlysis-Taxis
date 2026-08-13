@@ -1,7 +1,69 @@
-99 Referencias/
-Documentación/
-Datasets/
-Conexión Cremaet.txt
-00 Papeleos/
-Organigrama-solicitud-TFM.pdf
-plantillaTFM_MBDA.doc
+# Configuración privada
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python y notebooks
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml
+
+# El legado se conserva exactamente como fue auditado, incluidos sus artefactos.
+!old/Codigo/ETL/__pycache__/
+!old/Codigo/ETL/__pycache__/*.pyc
+!old/Codigo/ETL/Cuadernos/.ipynb_checkpoints/
+!old/Codigo/ETL/Cuadernos/.ipynb_checkpoints/*.ipynb
+
+# Editores y sistema operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Datos y artefactos generados
+data/*
+!data/README.md
+!data/samples/
+!data/samples/README.md
+logs/*
+!logs/README.md
+ml/artifacts/*
+!ml/artifacts/README.md
+
+# Elementos locales privados del TFM
+/00 Papeleos/
+/01 Documentación/
+/99 Referencias/
+
+# Ingesta Python es código preservado y debe versionarse.
+
+/03 Proyecto/Ingesta Python/old/Conexión Cremaet.txt
+/03 Proyecto/data/
+
+# MEMORIA 
+02 Memoria/main.aux
+02 Memoria/main.fls
+02 Memoria/main.lof
+02 Memoria/main.lot
+02 Memoria/main.toc
+02 Memoria/main.out
+02 Memoria/main.log
+02 Memoria/main.fdb_latexmk
+02 Memoria/main.synctex.gz
+02 Memoria/main.bbl
+02 Memoria/main.blg
+02 Memoria/main.synctex(busy)
+02 Memoria/main.txt
+02 Memoria/pdflatex14588.fls

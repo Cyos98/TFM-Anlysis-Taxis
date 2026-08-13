@@ -1,0 +1,18 @@
+version: 2
+
+sources:
+  - name: landing
+    schema: landing
+    tables:
+      - name: trip_records
+        description: Columnas comunes extraídas de Bronze Parquet.
+        columns:
+          - name: source_file_id
+            data_tests: [not_null]
+          - name: source_row_number
+            data_tests: [not_null]
+          - name: service_type
+            data_tests:
+              - not_null
+              - accepted_values:
+                  values: [yellow, green, fhv, fhvhv]

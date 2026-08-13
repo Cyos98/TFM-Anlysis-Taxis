@@ -1,0 +1,79 @@
+\chapter{Introducción}\label{chap:introduccion}
+
+La disponibilidad de datos masivos de movilidad ha modificado de forma sustancial la manera en que pueden estudiarse los sistemas de transporte urbano. Frente a los enfoques basados exclusivamente en encuestas, conteos manuales o muestras reducidas, los registros transaccionales generados por servicios de taxi y vehículos de alquiler con conductor permiten observar millones de desplazamientos con una granularidad temporal y espacial elevada. Nueva York constituye un caso especialmente relevante por la dimensión de su mercado de transporte bajo demanda y por la política de datos abiertos desarrollada por la New York City Taxi and Limousine Commission (TLC), que publica registros de viajes de distintas modalidades de servicio~\cite{nyctlc_tripdata,nyctlc_userguide}.
+
+El valor de estos datos no reside únicamente en su volumen. La combinación de marcas temporales, zonas de origen y destino, duración, distancia, tarifas y otros atributos hace posible analizar regularidades de movilidad, estudiar diferencias entre servicios, detectar episodios anómalos y construir modelos predictivos de demanda. Sin embargo, trabajar con un histórico de varios años y con múltiples tipos de servicio plantea un problema de ingeniería de datos antes incluso de abordar el análisis estadístico. Los esquemas evolucionan, algunos campos aparecen o desaparecen, existen registros incompletos o inconsistentes y la escala obliga a separar el almacenamiento bruto de los modelos analíticos orientados a consulta.
+
+Este Trabajo Fin de Máster aborda conjuntamente ambas dimensiones. Por una parte, se diseña una plataforma de datos local, reproducible y contenerizada, capaz de descargar, validar, transformar y modelar los registros de la comisión; por otra, se construye una capa analítica destinada a describir los patrones de movilidad y a predecir la demanda horaria por zona y tipo de servicio. El resultado se concibe como un proyecto \textit{end-to-end}: desde la obtención del fichero de origen hasta la visualización de indicadores y predicciones en una herramienta de Business Intelligence.
+
+\section{Motivación}
+
+La motivación del trabajo se apoya en tres argumentos complementarios. El primero es de naturaleza urbana y económica. La demanda de taxi no se distribuye de manera homogénea. Cambia según la hora, el día de la semana, la localización, la climatología, el calendario y la presencia de acontecimientos extraordinarios. Estudios previos han mostrado que la demanda de taxi en Nueva York presenta fuertes dependencias espacio-temporales y que la inclusión de estructura espacial y temporal mejora la capacidad predictiva~\cite{safikhani2020,faghih2019,toman2020}. Desde el punto de vista operativo, anticipar estas variaciones puede contribuir a posicionar mejor la oferta, reducir tiempos improductivos y comprender cómo compiten o se complementan los diferentes servicios.
+
+El segundo argumento es metodológico. Los conjuntos de datos de movilidad suelen utilizarse en ejercicios de análisis o modelado en los que la preparación previa queda reducida a un conjunto de scripts puntuales. Esa aproximación resulta suficiente para una prueba de concepto, pero no reproduce las prácticas habituales de una plataforma de datos mantenible. En un escenario real son necesarios controles de estado, idempotencia, registros de ejecución, validaciones, separación de capas, versionado de transformaciones y mecanismos de despliegue reproducible. El presente trabajo utiliza el caso de movilidad como vehículo para demostrar estas prácticas de ingeniería de datos.
+
+El tercer argumento es académico. La combinación de arquitectura, modelado dimensional, análisis de negocio, calidad de datos y aprendizaje automático permite estudiar el ciclo completo de creación de un producto analítico. La arquitectura de medallón proporciona una separación conceptual entre datos de origen, información depurada y modelos de negocio~\cite{databricks_medallion}; dbt permite tratar las transformaciones SQL como código versionado y testeable~\cite{dbt_docs}; Docker facilita que la solución sea ejecutable con las mismas dependencias en distintos equipos~\cite{docker_compose}; y Apache Superset proporciona una capa de consumo interactiva sobre los modelos analíticos~\cite{superset_docs}.
+
+\section{Problema de investigación}
+
+El problema central puede formularse de la siguiente manera: \textit{¿cómo diseñar una plataforma reproducible que permita transformar un histórico masivo y heterogéneo de viajes de la TLC en información analítica fiable, y hasta qué punto los patrones históricos permiten predecir la demanda futura por zona y franja horaria?}
+
+Esta pregunta combina dos problemas relacionados. El primero es arquitectónico: definir un flujo capaz de incorporar diferentes familias de datos, evolucionar ante cambios de esquema, evitar reprocesamientos innecesarios y dejar trazabilidad de cada ejecución. El segundo es predictivo: construir un conjunto de variables que represente adecuadamente la periodicidad de la demanda y evaluar modelos con una metodología temporal que evite utilizar información del futuro durante el entrenamiento.
+
+La plataforma se diseña para ejecutarse en un único equipo con Docker Desktop, pero aplicando principios que puedan trasladarse a un entorno servidor. Esta restricción es deliberada. El objetivo no es construir una infraestructura distribuida a cualquier coste, sino demostrar que una arquitectura rigurosa puede implementarse con tecnologías abiertas y recursos locales cuando el diseño separa adecuadamente almacenamiento, transformación, control y consumo.
+
+\section{Objetivo general}
+
+El objetivo general del Trabajo Fin de Máster es \textbf{diseñar e implementar una plataforma analítica reproducible para analizar los patrones de movilidad de los servicios de taxi y vehículos de alquiler en Nueva York y predecir la demanda de viajes por zona y franja temporal}.
+
+\section{Objetivos específicos}
+
+A partir del objetivo general se definen los siguientes objetivos específicos:
+
+\begin{enumerate}
+    \item Diseñar una arquitectura de datos contenerizada que pueda levantarse mediante Docker Compose y que no requiera instalaciones locales de PostgreSQL, dbt o Apache Superset.
+    \item Automatizar el descubrimiento y la descarga incremental de los ficheros publicados por la TLC para las modalidades Yellow Taxi, Green Taxi, FHV y HVFHV\@.
+    \item Preservar los datos de origen en una capa Bronze basada en Parquet, manteniendo metadatos de procedencia, fecha, servicio y estado de procesamiento.
+    \item Normalizar y depurar la información en una capa Silver, armonizando esquemas y aplicando reglas explícitas de calidad.
+    \item Diseñar una capa Gold basada en modelado dimensional y \textit{data marts} orientados a movilidad, comparación de servicios, rendimiento económico y predicción.
+    \item Incorporar mecanismos de idempotencia, auditoría, control de errores, cuarentena y observabilidad para que el pipeline pueda reejecutarse sin duplicar o corromper resultados.
+    \item Enriquecer los viajes con dimensiones temporales, información geográfica, festivos y variables meteorológicas cuando su disponibilidad y granularidad lo permitan.
+    \item Analizar la evolución de la movilidad entre 2018 y 2025, con especial atención al cambio estructural asociado a la pandemia de COVID-19 y a la evolución posterior.
+    \item Formular la predicción como el número de viajes iniciados por zona TLC y hora, evaluando horizontes de una hora y veinticuatro horas.
+    \item Comparar tres familias de modelos supervisados con propiedades diferentes: regresión de Poisson, Random Forest y LightGBM, además de un baseline temporal de referencia.
+    \item Construir dashboards en Apache Superset que permitan explorar resultados descriptivos, geográficos, económicos y predictivos.
+    \item Documentar la solución de forma que una tercera persona pueda reproducir el modo de demostración a partir del repositorio público.
+\end{enumerate}
+
+\section{Alcance y exclusiones}
+
+El trabajo analiza el periodo 2018--2025. Esta ventana proporciona años inmediatamente anteriores a la pandemia, el periodo de mayor disrupción y varios años posteriores. No obstante, la cobertura efectiva varía según la familia de servicio. En particular, la TLC comenzó a publicar los registros HVFHV como conjunto diferenciado en 2019~\cite{nyctlc_tripdata}; por tanto, no se fuerza una homogeneidad temporal inexistente y cada análisis declara el periodo realmente disponible.
+
+El concepto de rentabilidad se aborda mediante indicadores observados y mediante escenarios parametrizables. Los registros TLC contienen importes asociados a determinados servicios, pero no representan una contabilidad completa del conductor. Costes como combustible, mantenimiento, seguros, amortización, licencias o tiempo sin pasajero no pueden inferirse de forma fiable para todos los registros. En consecuencia, el trabajo distingue entre \textit{ingreso observado}, \textit{indicador derivado} y \textit{beneficio estimado}. La memoria evita presentar como beneficio neto una magnitud que no se observa directamente.
+
+Tampoco se plantea un sistema de predicción en tiempo real con garantías de servicio. El objetivo es construir y evaluar un pipeline reproducible de entrenamiento e inferencia por lotes. Una evolución hacia inferencia \textit{streaming}, alta disponibilidad o despliegue en nube se considera una línea futura.
+
+\section{Metodología de trabajo}
+
+El desarrollo sigue una aproximación incremental. En primer lugar se inventaría y audita el código existente, identificando componentes reutilizables y riesgos de publicación. A continuación se estabiliza el entorno Docker y la capa de control. Sobre esa base se implementan las fases de ingesta y transformación. La capa analítica se diseña una vez fijada la granularidad de las tablas Silver, y el modelado predictivo consume exclusivamente entidades Gold preparadas para ese propósito.
+
+Desde el punto de vista experimental, las decisiones se separan en dos grupos. Las decisiones arquitectónicas se validan mediante reproducibilidad, tests, reejecución e inspección de estado. Las decisiones de modelado se validan mediante métricas fuera de muestra y particiones temporales. Esta separación es importante: que un modelo obtenga una buena métrica no compensa un pipeline no reproducible, y una arquitectura técnicamente correcta no implica que las predicciones sean útiles.
+
+El control de versiones con Git registra el desarrollo y permite asociar cada experimento a una revisión concreta del código. Los resultados finales deberán referenciar el \textit{commit} o etiqueta utilizado para que la comparación de modelos pueda repetirse. El repositorio definitivo se publicará en \ProjectRepository.
+
+\section{Contribuciones principales}
+
+Las principales contribuciones esperadas son las siguientes:
+
+\begin{itemize}
+    \item una arquitectura local de datos reproducible que integra almacenamiento de ficheros, PostgreSQL, dbt, validación, machine learning y Superset;
+    \item un proceso de ingestión incremental e idempotente para varios años y varios tipos de servicio regulados por la comisión;
+    \item un modelo dimensional común que permite comparar modalidades con esquemas diferentes sin ocultar sus particularidades;
+    \item un conjunto de KPIs y \textit{data marts} orientados a comprender patrones de movilidad y oportunidades operativas;
+    \item una evaluación predictiva homogénea de tres familias de modelos para dos horizontes temporales y varios servicios;
+    \item un entregable reproducible que puede ejecutarse en modo reducido para demostración y en modo completo cuando existen recursos suficientes.
+\end{itemize}
+
+\section{Estructura de la memoria}
+
+El resto de la memoria comienza con el \cref{chap:contexto}, que introduce el contexto de movilidad urbana y describe los servicios regulados por la TLC\@. Los capítulos posteriores desarrollarán el estado del arte, las tecnologías y fuentes de datos seleccionadas, la arquitectura y la implementación del pipeline, la capa de inteligencia de negocio, la metodología predictiva, los resultados experimentales y, finalmente, las conclusiones, limitaciones y líneas futuras.

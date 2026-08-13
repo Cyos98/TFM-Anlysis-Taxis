@@ -1,0 +1,178 @@
+version: 2
+
+seeds:
+  - name: taxi_zone_lookup
+    description: Catálogo oficial de zonas TLC conservado como referencia reproducible.
+    columns:
+      - name: location_id
+        data_tests: [not_null, unique]
+      - name: borough
+        data_tests: [not_null]
+      - name: zone_name
+        data_tests: [not_null]
+
+models:
+  - name: dim_service_type
+    description: Catálogo estable de los cuatro servicios TLC soportados.
+    columns:
+      - name: service_type_key
+        data_tests:
+          - not_null
+          - unique
+          - accepted_values:
+              values: [yellow, green, fhv, fhvhv]
+
+  - name: dim_taxi_zone
+    description: Dimensión geográfica de zonas de taxi TLC.
+    columns:
+      - name: taxi_zone_key
+        data_tests: [not_null, unique]
+      - name: borough
+        data_tests: [not_null]
+      - name: zone_name
+        data_tests: [not_null]
+
+  - name: dim_date
+    description: Calendario generado para el intervalo presente en Silver.
+    columns:
+      - name: date_key
+        data_tests: [not_null, unique]
+      - name: full_date
+        data_tests: [not_null, unique]
+
+  - name: dim_time
+    description: Dimensión de las 24 horas y franjas operativas derivadas.
+    columns:
+      - name: hour_key
+        data_tests: [not_null, unique]
+      - name: day_period
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: [overnight, morning_peak, midday, evening_peak, night]
+
+  - name: fact_trip
+    description: Hecho de viaje a grano individual con medidas observadas y derivadas.
+    columns:
+      - name: trip_id
+        data_tests: [not_null, unique]
+      - name: pickup_date_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: pickup_hour_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_time')
+              field: hour_key
+      - name: pickup_taxi_zone_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_taxi_zone')
+              field: taxi_zone_key
+      - name: dropoff_taxi_zone_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_taxi_zone')
+              field: taxi_zone_key
+      - name: service_type_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_service_type')
+              field: service_type_key
+
+  - name: fact_zone_hourly_demand
+    description: Demanda observada por fecha, hora, zona de origen y servicio.
+    columns:
+      - name: zone_hour_service_key
+        data_tests: [not_null, unique]
+      - name: date_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: hour_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_time')
+              field: hour_key
+      - name: taxi_zone_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_taxi_zone')
+              field: taxi_zone_key
+      - name: service_type_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_service_type')
+              field: service_type_key
+      - name: trip_count
+        data_tests: [not_null]
+
+  - name: fact_zone_daily_performance
+    description: Rendimiento diario observado por zona de origen y servicio.
+    columns:
+      - name: zone_day_service_key
+        data_tests: [not_null, unique]
+      - name: date_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: taxi_zone_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_taxi_zone')
+              field: taxi_zone_key
+      - name: service_type_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_service_type')
+              field: service_type_key
+      - name: trip_count
+        data_tests: [not_null]
+
+  - name: mart_mobility_overview
+    description: Resumen diario por servicio para el panel ejecutivo.
+    columns:
+      - name: date_key
+        data_tests: [not_null]
+      - name: service_type_key
+        data_tests: [not_null]
+
+  - name: mart_service_comparison
+    description: Comparación acumulada de cobertura, demanda y cantidades monetarias observadas.
+    columns:
+      - name: service_type_key
+        data_tests: [not_null, unique]
+
+  - name: mart_driver_opportunity
+    description: Demanda relativa y cantidad observada por hora ocupada; no representa beneficio neto.
+    columns:
+      - name: zone_hour_service_key
+        data_tests: [not_null, unique]
+
+  - name: mart_congestion_proxy
+    description: Proxies de congestión derivados de velocidad y minutos por milla.
+    columns:
+      - name: zone_hour_service_key
+        data_tests: [not_null, unique]
+
+  - name: mart_profitability_scenario
+    description: Contribución neta estimada bajo costes configurables; no es beneficio observado.
+    columns:
+      - name: zone_day_service_key
+        data_tests: [not_null, unique]

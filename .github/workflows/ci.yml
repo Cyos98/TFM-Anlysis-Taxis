@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  technical-project:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: 03 Proyecto
+    env:
+      POSTGRES_DB: tfm_mobility
+      POSTGRES_USER: tfm
+      POSTGRES_PASSWORD: ci_only_password
+      NIFI_USERNAME: tfm_nifi_admin
+      NIFI_PASSWORD: ci_only_nifi_password_12345
+      NIFI_SENSITIVE_PROPS_KEY: ci_only_sensitive_properties_key_12345
+      SUPERSET_SECRET_KEY: ci_only_superset_secret_key_123456789
+      SUPERSET_ADMIN_PASSWORD: ci_only_password
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validar Compose
+        run: docker compose config --quiet
+
+      - name: Construir NiFi y ML
+        run: docker compose build nifi ml
+
+      - name: Tests Python ML
+        run: >-
+          docker compose run --rm --no-deps --entrypoint python ml
+          -m unittest discover -s /app/tests -v
+
+      - name: Arrancar integración
+        run: docker compose up -d postgres nifi dbt ml
+
+      - name: Verificar NiFi y demo
+        run: |
+          docker compose run --rm nifi-bootstrap
+          docker compose run --rm nifi-bootstrap python -m unittest discover -s /bootstrap -p 'test_*.py' -v
+          docker compose run --rm nifi-bootstrap python /bootstrap/smoke_test.py
+          docker compose run --rm nifi-bootstrap python /bootstrap/run_demo.py
+
+      - name: Compilar dbt
+        run: docker compose exec -T dbt dbt compile --project-dir /usr/app --profiles-dir /usr/app
+
+      - name: Logs en caso de fallo
+        if: failure()
+        run: docker compose logs --tail=200 postgres nifi nifi-bootstrap dbt ml
+
+      - name: Limpiar CI
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+

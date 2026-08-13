@@ -1,0 +1,25 @@
+
+    
+    
+
+with child as (
+    select hour_key as from_field
+    from "tfm_mobility"."gold"."fact_zone_hourly_demand"
+    where hour_key is not null
+),
+
+parent as (
+    select hour_key as to_field
+    from "tfm_mobility"."gold"."dim_time"
+)
+
+select
+    from_field
+
+from child
+left join parent
+    on child.from_field = parent.to_field
+
+where parent.to_field is null
+
+
