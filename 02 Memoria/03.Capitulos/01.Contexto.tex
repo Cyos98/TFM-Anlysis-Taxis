@@ -50,7 +50,7 @@ La unidad espacial principal del modelo predictivo es la zona de recogida. Para 
 
 La demanda de transporte presenta ciclos de distinta escala. La hora del día captura patrones de entrada y salida laboral, ocio nocturno y movilidad hacia aeropuertos. El día de la semana distingue jornadas laborales de fines de semana. El mes y la estación recogen efectos de clima y actividad turística. Los festivos introducen excepciones recurrentes que no quedan bien descritas únicamente con el número de día.
 
-La dimensión temporal de Gold se diseña para representar estas propiedades de manera explícita. Además de atributos categóricos, el modelado puede incorporar codificaciones cíclicas. Para una variable periódica de periodo $P$, como la hora del día, se definen:
+La dimensión temporal de Gold se diseña para representar estas propiedades de manera explícita. Además de atributos categóricos, el modelado puede incorporar codificaciones cíclicas. Para una variable periódica de periodo \(P\), como la hora del día, se definen:
 
 \begin{equation}
  x_{\sin}=\sin\left(2\pi\frac{x}{P}\right), \qquad
@@ -91,7 +91,7 @@ Para los servicios con información de tarifa suficiente, ¿qué zonas y franjas
 
 \subsection{Predicción de demanda}
 
-Dado el historial disponible hasta un instante $t$, ¿cuántos viajes se iniciarán en cada zona una hora más tarde y veinticuatro horas más tarde? ¿Qué modelo mantiene mejor rendimiento fuera de muestra? ¿El modelo ganador es el mismo para todos los servicios?
+Dado el historial disponible hasta un instante \(t\), ¿cuántos viajes se iniciarán en cada zona una hora más tarde y veinticuatro horas más tarde? ¿Qué modelo mantiene mejor rendimiento fuera de muestra? ¿El modelo ganador es el mismo para todos los servicios?
 
 \section{Del análisis descriptivo al producto analítico}
 

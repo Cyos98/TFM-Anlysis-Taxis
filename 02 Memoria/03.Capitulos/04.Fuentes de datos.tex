@@ -1,0 +1,177 @@
+\chapter{Fuentes de datos y análisis preliminar}\label{chap:datos}
+
+\section{Fuente principal: TLC Trip Record Data}
+
+La fuente principal del trabajo es el portal de \textit{Trip Record Data} de la New York City Taxi and Limousine Commission. La página oficial ofrece descargas mensuales en formato Parquet y diccionarios de datos diferenciados por servicio~\cite{nyctlc_tripdata}. La TLC advierte además de que los datos se publican a partir de registros remitidos por operadores y bases, por lo que la publicación no debe interpretarse como garantía absoluta de exactitud de cada observación~\cite{nyctlc_reports}.
+
+Esta característica refuerza la necesidad de una capa propia de calidad. El pipeline no modifica el fichero Bronze, pero registra incidencias de esquema y aplica reglas de validez antes de promover datos a Silver.
+
+\section{Periodo de estudio}
+
+La ventana general comprende desde el 1 de enero de 2018 hasta el 31 de diciembre de 2025. La elección permite dividir conceptualmente el análisis en tres fases:
+
+\begin{itemize}
+\item \textbf{Pre-pandemia:} 2018--2019, utilizado como referencia de comportamiento previo.
+\item \textbf{Disrupción y transición:} 2020--2021, periodo en el que la movilidad experimenta cambios extraordinarios.
+\item \textbf{Recuperación y nuevo equilibrio:} 2022--2025, donde se observa la evolución posterior y la consolidación de nuevas pautas.
+\end{itemize}
+
+La división es analítica, no causal. El trabajo no presupone que todo cambio entre periodos se deba a la pandemia.
+
+\section{Disponibilidad por servicio}
+
+La \cref{tab:services-coverage} resume el alcance previsto. La cobertura exacta se verificará automáticamente contra el portal durante la ejecución.
+
+\begin{table}[H]
+\centering
+\caption{Servicios TLC incluidos y cobertura analítica prevista.}%
+\label{tab:services-coverage}%
+\begin{tabularx}{\textwidth}{lcccY}
+\toprule
+\textbf{Servicio} & \textbf{2018} & \textbf{2019--2025} & \textbf{Tarifas} & \textbf{Uso principal} \\
+\midrule
+Yellow & Sí & Sí & Amplias & Movilidad, economía y predicción \\
+Green & Sí & Sí & Amplias & Movilidad, economía y predicción \\
+FHV & Sí & Sí & Limitadas/variables & Movilidad y predicción \\
+HVFHV & No separado & Sí & Esquema propio & Movilidad, comparación y predicción \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Desde 2019 los HVFHV se reportan como un dataset separado y más detallado~\cite{nyctlc_tripdata}. En consecuencia, cualquier gráfico comparativo que incluya esta modalidad debe comenzar en 2019 o marcar explícitamente la falta de cobertura anterior.
+
+\section{Unidad de ingesta}
+
+La unidad de ingesta es el fichero mensual por servicio. Cada activo se identifica mediante una clave lógica compuesta por servicio, año, mes y URL de origen. Cuando sea viable se calcula además un hash criptográfico para detectar cambios en un fichero publicado con el mismo nombre.
+
+Los metadatos mínimos son:
+
+\begin{itemize}
+\item servicio;
+\item año y mes;
+\item URL\@;
+\item ruta local;
+\item tamaño en bytes;
+\item hash;
+\item fecha de descubrimiento y descarga;
+\item estado de validación;
+\item estado de promoción a Silver;
+\item número de registros leído y aceptado.
+\end{itemize}
+
+\section{Cambios de esquema}
+
+Un histórico de ocho años no debe asumirse esquemáticamente estable. Los diccionarios TLC evolucionan y los campos disponibles dependen del servicio y periodo. Por ejemplo, la página oficial indica que a partir de 2025 se añadió un campo de cargo de congestión CBD en determinados datasets~\cite{nyctlc_tripdata}. Si el pipeline utilizara una lista rígida de columnas para todo el histórico, una incorporación de este tipo podría provocar errores o, peor aún, pérdidas silenciosas de información.
+
+La estrategia adoptada separa tres conceptos:
+
+\begin{enumerate}
+\item \textbf{Esquema físico observado}: columnas y tipos contenidos en cada Parquet.
+\item \textbf{Contrato Silver común}: conjunto de atributos homologados necesarios para análisis transversal.
+\item \textbf{Atributos específicos}: campos propios de un servicio o periodo que se conservan cuando aportan valor.
+\end{enumerate}
+
+El contrato Silver permite que un consumidor conozca qué significa cada campo sin tener que estudiar cada versión del fichero original.
+
+\section{Taxonomía común del viaje}
+
+Se propone un núcleo de campos comunes como el mostrado en la \cref{tab:common-fields}. La existencia real de cada atributo se verificará por familia y año.
+
+\begin{table}[H]
+\centering
+\caption{Contrato conceptual común para un viaje Silver.}%
+\label{tab:common-fields}%
+\begin{tabularx}{\textwidth}{l l Y}
+\toprule
+\textbf{Campo} & \textbf{Tipo} & \textbf{Significado} \\
+\midrule
+service\_type & texto & Modalidad TLC de procedencia. \\
+pickup\_datetime & timestamp & Instante de inicio del viaje o recogida. \\
+dropoff\_datetime & timestamp & Instante de finalización cuando esté disponible. \\
+pickup\_location\_id & entero & Zona TLC de origen. \\
+dropoff\_location\_id & entero & Zona TLC de destino. \\
+trip\_distance & numérico & Distancia declarada cuando exista. \\
+trip\_duration\_minutes & numérico & Duración derivada entre marcas temporales. \\
+base\_fare & numérico & Tarifa base cuando la fuente la proporcione. \\
+total\_amount & numérico & Importe total observado cuando sea comparable. \\
+source\_file & texto & Fichero Bronze del que procede el registro. \\
+source\_year/month & entero & Partición temporal de procedencia. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Taxi Zone Lookup y geometrías}
+
+La guía de usuario de la TLC proporciona una tabla de zonas y un fichero geográfico para representar las áreas utilizadas en los registros~\cite{nyctlc_userguide}. Se incorpora una dimensión \texttt{dim\_taxi\_zone} con identificador, nombre de zona, borough y \textit{service zone}. Las geometrías se conservan en un activo geográfico apropiado para construir mapas.
+
+El uso de la taxonomía oficial evita inventar cuadrículas arbitrarias y facilita que los resultados puedan compararse con otros análisis basados en TLC zones.
+
+\section{Calendario y festivos}
+
+La dimensión de calendario se genera de forma determinista y no requiere un fichero masivo externo. Para cada fecha se incluyen, como mínimo, año, trimestre, mes, semana, día de la semana, indicador de fin de semana, estación y festivo. Los festivos se parametrizan con una fuente o librería versionada y deben quedar materializados en Gold para que un cambio de dependencia no modifique silenciosamente un experimento histórico.
+
+\section{Meteorología}
+
+Se prevé utilizar datos históricos de NOAA/NCEI para una estación representativa de Nueva York o una combinación documentada de estaciones~\cite{noaa_ncei}. La decisión final debe equilibrar disponibilidad temporal y simplicidad de unión. Para el objetivo predictivo, la granularidad preferente es horaria.
+
+Las variables candidatas incluyen:
+
+\begin{itemize}
+\item temperatura;
+\item precipitación;
+\item nieve;
+\item velocidad del viento;
+\item visibilidad;
+\item indicadores derivados de condiciones adversas.
+\end{itemize}
+
+Si una variable solo está disponible con granularidad diaria, se documentará para evitar dar a entender una precisión temporal inexistente.
+
+\section{Reglas iniciales de calidad}
+
+Antes de construir indicadores se aplican reglas generales y específicas. Entre las reglas generales se encuentran:
+
+\begin{itemize}
+\item marcas temporales dentro de rangos plausibles;
+\item fecha de bajada posterior o igual a la de recogida cuando ambas existan;
+\item duración no negativa;
+\item distancias no negativas;
+\item importes no negativos salvo campos donde un ajuste contable pueda justificarlo;
+\item zonas de origen y destino pertenecientes al catálogo cuando el campo exista;
+\item ausencia de duplicados según la clave técnica definida;
+\item coherencia entre el mes del fichero y la fecha principal, permitiendo una tolerancia documentada en viajes que cruzan límites temporales.
+\end{itemize}
+
+Una regla que falla no implica siempre que el registro se elimine. Se distinguen errores críticos, advertencias y anomalías estadísticas. La causa de exclusión debe quedar registrada.
+
+\section{Outliers y valores extremos}
+
+Los datos de movilidad contienen valores extremos legítimos y errores. Un viaje largo hacia un aeropuerto o fuera de las zonas centrales no debe descartarse únicamente por ser infrecuente. Por esta razón se evita utilizar exclusivamente umbrales estadísticos globales para eliminar observaciones.
+
+La estrategia combina restricciones físicas o semánticas con percentiles utilizados como señal de inspección. Los umbrales definitivos se documentarán tras el análisis exploratorio y se comparará el efecto de filtrado sobre la distribución. El objetivo es evitar que la limpieza elimine precisamente aquellos eventos que explican parte de la heterogeneidad urbana.
+
+\section{Análisis exploratorio previsto}
+
+El análisis exploratorio se estructura en cuatro bloques. El primero cuantifica volumen y cobertura de datos. El segundo estudia distribución temporal. El tercero examina geografía y flujos. El cuarto analiza campos económicos allí donde sean comparables.
+
+\subsection{Volumen y cobertura}
+
+Se reportarán número de ficheros, tamaño, registros y porcentaje de filas válidas por servicio y año. En la versión final, la plataforma habrá procesado \TotalTrips{} viajes y un volumen Bronze de \TotalBronzeGB{}.
+
+\placeholderfigure{Serie mensual del número de viajes por servicio entre 2018 y 2025, generada a partir de \texttt{mart\_mobility\_overview}.}{Evolución mensual del volumen de viajes por tipo de servicio.}
+
+\subsection{Patrones temporales}
+
+Se analizarán perfiles horarios, diferencias laborable/fin de semana, estacionalidad mensual y periodos de ruptura. Es importante representar tanto valores absolutos como índices relativos, dado que la escala entre servicios puede diferir varios órdenes de magnitud.
+
+\subsection{Patrones geográficos}
+
+Los mapas mostrarán densidad de recogidas por zona y cambios relativos entre periodos. También se construirán matrices o rankings de pares origen-destino, evitando visualizaciones que resulten ilegibles por el número de combinaciones.
+
+\subsection{Indicadores económicos}
+
+Para Yellow y Green se estudiarán distribuciones de importe, propina, distancia, duración e ingreso observado por hora ocupada. Estas métricas se utilizarán para el dashboard de oportunidades, pero siempre acompañadas de tamaño muestral para evitar rankings dominados por zonas con pocas observaciones.
+
+\section{Trazabilidad de la fuente al indicador}
+
+Cada tabla Gold conserva las claves necesarias para conocer la procedencia de las agregaciones. En el nivel transaccional se conserva \texttt{source\_file}; en el nivel agregado se mantiene el periodo y servicio. La tabla de control permite reconstruir qué ficheros participaron en una ejecución determinada. Esta trazabilidad es necesaria tanto para depuración como para defensa académica de los resultados.

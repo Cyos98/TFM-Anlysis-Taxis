@@ -1,0 +1,125 @@
+\chapter{Estado del arte}\label{chap:estadoarte}
+
+\section{De ETL a plataformas analíticas reproducibles}
+
+Los sistemas analíticos tradicionales se han descrito históricamente mediante procesos ETL\@: extracción desde sistemas de origen, transformación en una plataforma intermedia y carga en un almacén de datos. La evolución de la capacidad de cómputo de los motores analíticos favoreció posteriormente estrategias ELT, donde los datos se cargan antes de aplicar las transformaciones lógicas~\cite{vassiliadis2009}. La diferencia no es meramente terminológica. En un enfoque ELT, las transformaciones pueden declararse como SQL versionado y ejecutarse cerca del almacenamiento, lo que facilita trazabilidad, revisión de código y pruebas automatizadas.
+
+El proyecto adopta una solución híbrida adaptada a la naturaleza de sus fuentes. La extracción y preservación de Parquet se realiza fuera de PostgreSQL, mientras que la estandarización relacional y los modelos de negocio se expresan mediante dbt sobre PostgreSQL\@. De este modo se evita duplicar innecesariamente los ficheros brutos en un motor relacional y, al mismo tiempo, se conserva la capacidad de construir modelos SQL auditables.
+
+\section{Data Warehouse, Data Lake y Lakehouse}
+
+El \textit{Data Warehouse} organiza información integrada para consulta analítica y suele asociarse a esquemas estructurados y modelos dimensionales. Inmon formalizó una visión corporativa e integrada del almacén de datos~\cite{inmon2005}, mientras que Kimball desarrolló una metodología orientada a procesos de negocio y modelos dimensionales con hechos y dimensiones~\cite{kimball2013}. Ambos enfoques han influido de manera decisiva en las arquitecturas analíticas actuales.
+
+El concepto de \textit{Data Lake} surgió para almacenar grandes volúmenes de información en formatos diversos con menor exigencia de modelado previo. Esta flexibilidad resuelve ciertos problemas de ingestión, pero puede trasladar la complejidad hacia el consumo si no se establecen contratos, metadatos y procesos de refinamiento. Las arquitecturas \textit{Lakehouse} buscan combinar almacenamiento flexible con capacidades de gestión y analítica estructurada.
+
+En un entorno local, el presente proyecto no pretende replicar todas las capacidades de un Lakehouse comercial. No obstante, reproduce una separación esencial: el fichero Parquet original actúa como activo de datos inmutable, mientras PostgreSQL aloja estructuras depuradas y modelos de consumo. Esta decisión también reduce el volumen de escritura y evita convertir Bronze en una copia relacional de información que ya dispone de un formato columnar eficiente.
+
+\section{Arquitectura de Medallón}
+
+La arquitectura de medallón organiza el flujo de datos en niveles de refinamiento progresivo, habitualmente denominados Bronze, Silver y Gold. La documentación de Databricks describe Bronze como la capa de datos de origen, Silver como el nivel de validación y limpieza, y Gold como la capa orientada a consumo y agregación~\cite{databricks_medallion}. El valor de este patrón no depende de una tecnología concreta, sino de separar responsabilidades.
+
+En este TFM, Bronze se materializa como ficheros Parquet acompañados por metadatos de control. Silver representa el contrato analítico común de los viajes y de las fuentes de referencia. Gold contiene dimensiones, hechos y \textit{marts}. Esta adaptación se diferencia de implementaciones donde las tres capas residen en el mismo motor, pero mantiene el principio de que un dato no se considera listo para negocio hasta haber superado un conjunto explícito de transformaciones y validaciones.
+
+Un aspecto importante es evitar que la arquitectura de medallón se convierta en una mera nomenclatura de carpetas. Para que la separación tenga valor, cada capa debe tener reglas de entrada y salida. Bronze no corrige el contenido del fichero; Silver no incorpora cálculos de negocio que puedan variar por consumidor; Gold no actúa como almacén de datos crudos. Estas fronteras simplifican la depuración y permiten localizar el origen de un error.
+
+\section{Modelado dimensional}
+
+El modelado dimensional organiza métricas cuantitativas en tablas de hechos y atributos descriptivos en dimensiones. Kimball y Ross destacan la importancia de declarar la granularidad de la tabla de hechos antes de diseñar dimensiones y medidas~\cite{kimball2013}. Esta regla resulta especialmente relevante en movilidad porque el mismo dominio admite múltiples granularidades: un viaje individual, una combinación zona-hora, una combinación origen-destino o una agregación diaria.
+
+El proyecto mantiene una tabla de hechos de viaje cuando la fuente y el volumen lo hacen viable y construye hechos agregados para los principales casos de uso. La tabla \texttt{fact\_zone\_hourly\_demand}, por ejemplo, tiene una fila por servicio, zona y hora. Esa granularidad coincide con la variable objetivo del modelado predictivo y evita que cada experimento tenga que volver a agrupar el nivel transaccional.
+
+La capa Gold también incorpora dimensiones conformadas. Una misma \texttt{dim\_taxi\_\allowbreak{}zone} puede filtrar múltiples hechos y una misma \texttt{dim\_date} proporciona atributos de calendario consistentes. Esta reutilización es relevante para Superset porque reduce divergencias entre dashboards.
+
+\section{DataOps, versionado y reproducibilidad}
+
+DataOps traslada principios de ingeniería de software a los pipelines de datos: automatización, control de versiones, pruebas, observabilidad y ciclos de cambio controlados. Aunque el término abarca prácticas organizativas amplias, en el contexto de este trabajo se materializa mediante decisiones concretas: Git como historial de código, Docker como encapsulamiento del entorno, NiFi para controlar el flujo de ingesta, dbt para dependencias y tests de transformación, y tablas de control para registrar ejecuciones.
+
+La reproducibilidad exige algo más que publicar scripts. Una ejecución depende de versiones de librerías, variables de entorno, datos de entrada, parámetros de flujo y configuración. Docker Compose permite declarar los servicios que forman la aplicación y sus relaciones en un fichero versionado~\cite{docker_compose}. El repositorio debe incluir además un \texttt{.env.example}, instrucciones de inicialización, una definición reproducible del flujo NiFi y un modo demo de tamaño razonable.
+
+\section{Plataformas de flujo de datos y Apache NiFi}
+
+Cuando la ingesta crece en número de fuentes y estados, una colección de scripts programados puede requerir código adicional para planificación, reintentos, colas, enrutamiento y trazabilidad. Apache NiFi aborda estas responsabilidades mediante un modelo de programación por flujos en el que los componentes se conectan formando grafos dirigidos y los objetos procesados se representan como FlowFiles~\cite{nifi_components}.
+
+NiFi incorpora \textit{Process Groups} para modularizar el canvas, \textit{Parameter Contexts} para separar configuración de la lógica y estrategias de planificación temporales o CRON~\cite{nifi_user_guide}. Su capacidad de \textit{Data Provenance} registra el recorrido y las operaciones aplicadas sobre los FlowFiles, permitiendo consultar eventos y representar el linaje~\cite{nifi_user_guide}. Estas características resultan relevantes en un proyecto académico donde no solo interesa que la ingesta funcione, sino demostrar cómo se controla, se recupera y se audita.
+
+La adopción de NiFi no implica trasladar toda transformación a una herramienta visual. En este trabajo se aplica una separación deliberada: NiFi gobierna movimiento y control operacional; dbt mantiene la lógica SQL de Silver y Gold; Python conserva el modelado predictivo. Esta combinación evita dos extremos: un orquestador Python excesivamente artesanal y un canvas NiFi sobrecargado con lógica analítica que resulta más mantenible en código declarativo.
+
+\section{Calidad de datos}
+
+La calidad de datos puede analizarse mediante dimensiones como completitud, validez, unicidad, consistencia e integridad. En un dataset masivo de viajes, eliminar silenciosamente registros que incumplen una regla dificulta auditar la transformación. Por ello, el proyecto combina tres niveles de control.
+
+El primer nivel valida el fichero antes de su procesamiento: disponibilidad, tamaño, legibilidad y esquema mínimo. El segundo aplica reglas semánticas durante la construcción de Silver: fechas ordenadas, identificadores de zona válidos, duración no negativa o importes coherentes cuando estén disponibles. El tercer nivel utiliza tests de dbt para comprobar propiedades de los modelos relacionales, como claves no nulas, unicidad e integridad referencial.
+
+En la arquitectura basada en NiFi, los controles físicos y de ruta se ejecutan durante la ingesta y sus resultados se registran antes de promover un activo. Las reglas semánticas y relacionales permanecen en dbt. Great Expectations se evaluó como complemento para contratos declarativos~\cite{gx_docs}, pero no se incorpora como dependencia estructural mientras sus comprobaciones puedan cubrirse de forma clara con NiFi, SQL y tests de dbt. Esta decisión reduce solapamientos y mantiene una responsabilidad reconocible para cada herramienta.
+
+\section{Datos de taxi como fuente para estudiar movilidad}
+
+La apertura de los registros de la TLC ha generado una extensa literatura. Hochmair analizó patrones temporales y espaciales, incluyendo el papel de aeropuertos y diferencias entre días laborables y fines de semana~\cite{hochmair2016}. Riascos y Mateos modelaron la red de movilidad a partir de más de mil millones de viajes y construyeron medidas de relevancia basadas en matrices origen-destino~\cite{riascos2020}. Estos trabajos evidencian que el dataset permite estudiar tanto patrones locales como estructura global de la ciudad.
+
+La irrupción de plataformas de \textit{ride-hailing} amplió el interés hacia la comparación entre taxis tradicionales y servicios de aplicaciones. Faghih et al.\ analizaron predicción de demanda de Uber en Nueva York mediante modelos espacio-temporales~\cite{faghih2019}. Toman et al.\ estudiaron conjuntamente taxis y servicios de \textit{ridesourcing} a nivel de zonas TLC y observaron dependencias espaciales significativas~\cite{toman2020}. Este TFM se sitúa en esa línea comparativa, pero incorpora una contribución adicional de ingeniería: la misma plataforma debe ser capaz de integrar varias familias de servicio de forma reproducible.
+
+\section{Predicción de demanda de taxi}
+
+La predicción de demanda es un problema espacio-temporal. El número de viajes de una zona en una hora depende del comportamiento reciente, de periodicidades y de características de la zona. Los métodos propuestos en la literatura abarcan modelos estadísticos autorregresivos, regresiones penalizadas, árboles de decisión, ensembles y redes neuronales profundas.
+
+\begin{sloppypar}
+Safikhani et al.\ propusieron modelos STAR generalizados con regularización para demanda de Yellow Taxi, mostrando la utilidad de incorporar estructura espacio-temporal~\cite{safikhani2020}. Faghih et al.\ estudiaron el corto plazo en demanda de Uber y compararon modelos temporales y espacio-temporales~\cite{faghih2019}. Trabajos posteriores han utilizado Random Forest, XGBoost y otras técnicas de machine learning para capturar relaciones no lineales~\cite{correa2023}. También existe una línea de investigación basada en redes LSTM, convoluciones y mecanismos de atención~\cite{mtldemand2020,berttaxi2022}.
+\end{sloppypar}
+
+El presente proyecto no persigue competir con arquitecturas profundas de estado del arte. La decisión es deliberada: el objetivo académico incluye comparar modelos representativos, interpretables y ejecutables en un equipo local con 32 GB de RAM\@. Se prioriza un diseño experimental reproducible sobre una búsqueda exhaustiva de complejidad. Por esta razón se eligen tres familias con sesgos inductivos diferentes.
+
+\section{Regresión de Poisson como referencia estructurada}
+
+La demanda es una variable de conteo no negativa. La regresión de Poisson modela la esperanza condicional mediante un enlace logarítmico:
+
+\begin{equation}
+\log \left( \mathbb{E}[Y\mid X] \right) = \beta_0 + X\beta.
+\end{equation}
+
+Su principal ventaja es ofrecer una referencia lineal coherente con la naturaleza de la variable objetivo. No se asume que sea el mejor modelo, especialmente si existe sobredispersión, interacciones complejas o cambios de régimen. Su función es establecer un punto de comparación interpretable y revelar cuánto rendimiento adicional aportan los modelos no lineales. La implementación se basa en \texttt{PoissonRegressor} de scikit-learn~\cite{sklearn_poisson,pedregosa2011}.
+
+\section{Random Forest}
+
+Random Forest combina múltiples árboles entrenados sobre muestras y subconjuntos de variables para reducir la varianza de un único árbol~\cite{breiman2001}. En datos tabulares puede capturar interacciones no lineales sin exigir una especificación funcional previa. Además, proporciona medidas de importancia de variables y una base conocida para comparar con métodos de boosting.
+
+Su principal limitación en este proyecto es computacional. El histórico por zona y hora puede generar millones de filas, y un bosque con muchos árboles consume memoria de forma significativa. Por ello, el diseño experimental debe documentar el muestreo, número de árboles, profundidad y restricciones de nodos utilizadas.
+
+\section{Gradient Boosting y LightGBM}
+
+Los métodos de gradient boosting construyen árboles secuencialmente para corregir errores de los modelos anteriores~\cite{friedman2001}. LightGBM introduce optimizaciones orientadas a grandes conjuntos tabulares y utiliza algoritmos de histogramas y crecimiento de árbol eficientes~\cite{ke2017,lightgbm_docs}. Estas propiedades lo convierten en un candidato natural para el volumen de este TFM\@.
+
+La comparación entre Random Forest y LightGBM también tiene interés metodológico: uno representa \textit{bagging} y otro \textit{boosting}. Si LightGBM obtiene mejor resultado, será necesario comprobar que la mejora compensa su mayor complejidad de ajuste y que se mantiene de manera consistente entre servicios y horizontes.
+
+\section{Validación temporal y fuga de información}
+
+En predicción de series temporales, una partición aleatoria convencional puede situar observaciones futuras en entrenamiento y observaciones pasadas en test. Esto produce una evaluación optimista, especialmente cuando se utilizan variables \textit{lag} o medias móviles. El proyecto aplica divisiones cronológicas: el entrenamiento contiene únicamente observaciones anteriores a validación y test.
+
+Las variables derivadas deben seguir la misma regla. Por ejemplo, una media móvil de 24 horas para predecir \(t+1\) puede utilizar \(t,t-1,\ldots,t-23\), pero nunca información posterior. La implementación de features se diseña para que la fecha de corte sea explícita y verificable.
+
+\section{Métricas de evaluación}
+
+Se utilizan métricas complementarias porque ninguna resume por sí sola el comportamiento del modelo. El error absoluto medio se define como:
+
+\begin{equation}
+\mathrm{MAE}=\frac{1}{n}\sum_{i=1}^{n}\left|y_i-\hat{y}_i\right|.
+\end{equation}
+
+El RMSE penaliza con mayor intensidad errores grandes:
+
+\begin{equation}
+\mathrm{RMSE}=\sqrt{\frac{1}{n}\sum_{i=1}^{n}{\left(y_i-\hat{y}_i\right)}^{2}}.
+\end{equation}
+
+Finalmente, WAPE proporciona un error porcentual agregado robusto ante la presencia de observaciones individuales iguales a cero:
+
+\begin{equation}
+\mathrm{WAPE}=\frac{\sum_{i=1}^{n}|y_i-\hat{y}_i|}{\sum_{i=1}^{n}|y_i|}.
+\end{equation}
+
+El coeficiente \(R^2\) se incluye como métrica secundaria, pero no se utiliza de forma aislada para seleccionar el modelo.
+
+\section{Posicionamiento del presente trabajo}
+
+La literatura demuestra que los registros de taxi son adecuados para estudiar movilidad y que la demanda presenta estructura espacial y temporal. Sin embargo, gran parte de los trabajos se concentra en el algoritmo predictivo o en un análisis específico. Este TFM adopta una perspectiva de producto analítico: el problema comienza en la fuente de datos y finaliza en una capa de consumo reproducible.
+
+La contribución no pretende ser un nuevo algoritmo de forecasting. Se sitúa en la integración rigurosa de prácticas de ingeniería de datos con análisis y machine learning: múltiples fuentes TLC, arquitectura de medallón, modelado dimensional, calidad declarativa, ejecución contenerizada, comparación temporal de modelos y publicación en dashboards. Esta combinación permite evaluar no solo si una predicción es precisa, sino si puede reproducirse y explicarse dentro de un sistema completo.

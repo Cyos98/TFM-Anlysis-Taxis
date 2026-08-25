@@ -1,0 +1,253 @@
+\chapter{Implementación del pipeline de datos}\label{chap:pipeline}
+
+\section{Organización del repositorio}
+
+Las primeras pruebas de la ingesta se hicieron en Python y permitieron validar el acceso a las fuentes y el procesamiento inicial. Finalmente, se optó por una implementación basada en Apache NiFi, más reproducible y mantenible para coordinar la descarga, las validaciones, los reintentos y el seguimiento del estado. La migración mantiene separadas la arquitectura actual y la implementación Python anterior. La estructura objetivo se resume en el \cref{lst:repo-tree-nifi}.
+
+\begin{lstlisting}[caption={Estructura objetivo del repositorio tras la migración a NiFi.},label={lst:repo-tree-nifi}]
+tfm-nyc-mobility-platform/
+  docker-compose.yml
+  .env.example
+  Makefile
+  Ingesta Python/
+    README.md
+    src/
+    tests/
+  nifi/
+    flows/
+    parameters/
+    sql/
+    docs/
+  dbt/
+    models/
+      staging/
+      silver/
+      gold/
+      marts/
+    tests/
+    macros/
+  ml/
+    src/
+    configs/
+    artifacts/
+  superset/
+    exports/
+  sql/
+    init/
+    control/
+  docs/
+  data/
+    samples/
+\end{lstlisting}
+
+La carpeta \texttt{Ingesta Python/} preserva el trabajo previo para trazabilidad y comparación. No forma parte del camino nominal de la nueva arquitectura. La carpeta \texttt{nifi/} contiene los elementos necesarios para reconstruir el flujo, parámetros no sensibles y documentación.
+
+\section{Inicialización del entorno}
+
+El flujo de arranque parte de Docker Compose. PostgreSQL debe superar su \textit{healthcheck} antes de habilitar componentes que dependan de JDBC\@. NiFi requiere volúmenes persistentes para los repositorios que se decida conservar. Superset mantiene su proceso de inicialización y Redis se inicia como dependencia auxiliar.
+
+La secuencia de entrada sigue siendo deliberadamente sencilla:
+
+\begin{lstlisting}[language=bash,caption={Secuencia conceptual de inicialización.}]
+cp .env.example .env
+docker compose up -d
+docker compose ps
+\end{lstlisting}
+
+El repositorio ofrece comandos de conveniencia, como \texttt{make start}, \texttt{make demo}, \texttt{make test} y \texttt{make logs}, una vez sincronizados con la implementación final. Estos comandos no duplican la lógica de NiFi; actúan como puntos de entrada para un usuario que no necesita conocer todos los detalles del Compose.
+
+\section{Configuración de NiFi}
+
+La configuración se divide en valores del contenedor y parámetros del flujo. Las variables de infraestructura incluyen puertos, memoria, credenciales iniciales y rutas de persistencia. Los \textit{Parameter Contexts} contienen valores funcionales como fecha inicial, fecha final, modo del pipeline, rutas Bronze y timeouts.
+
+Los grupos de procesos consumen estos parámetros mediante la sintaxis propia de NiFi. Los valores sensibles se marcan como tales o se obtienen desde el entorno sin almacenarlos en el repositorio.
+
+\section{Descubrimiento de ficheros TLC}
+
+El grupo \texttt{10\_TLC\_DISCOVERY} determina qué activos deberían existir para cada combinación de servicio, año y mes. El resultado se representa mediante FlowFiles cuyos atributos contienen al menos servicio, año, mes, URL esperada y ruta objetivo.
+
+Cada activo dispone de una clave lógica:
+
+\begin{equation}
+K_f = (s,y,m),
+\end{equation}
+
+donde \(s\) es el servicio, \(y\) el año y \(m\) el mes. Antes de iniciar una descarga, NiFi consulta \texttt{control.ingestion\_files}. Un activo finalizado correctamente puede enrutarse a \texttt{SKIPPED}; uno nuevo se registra como \texttt{DISCOVERED}.
+
+Separar descubrimiento y descarga hace posible detectar activos ausentes, contabilizar trabajo pendiente y reanudar una ejecución sin repetir el catálogo completo de forma opaca.
+
+\section{Descarga mediante InvokeHTTP}
+
+La descarga se realiza mediante procesadores HTTP configurables. \texttt{InvokeHTTP} permite definir URL, método, timeout y gestionar distintas relaciones según el resultado de la petición~\cite{nifi_invokehttp}. La URL se construye a partir de los atributos y parámetros del FlowFile, evitando mantener un flujo distinto para cada mes.
+
+La respuesta se valida antes de publicar el fichero en Bronze. Los códigos de éxito continúan hacia validación; errores transitorios se enrutan a retry; respuestas que indican que el recurso no existe se registran de forma diferenciada. La arquitectura no permite reintentos infinitos.
+
+Cuando resulta viable se registra tamaño, checksum, código HTTP, intento y timestamps. El objetivo es que un fichero descargado pueda vincularse a una entrada de control y a sus eventos de procedencia.
+
+\section{Validación y publicación en Bronze}
+
+La validación previa a Silver comprueba propiedades físicas y estructurales:
+
+\begin{enumerate}
+\item respuesta HTTP satisfactoria;
+\item contenido no vacío;
+\item extensión y nombre esperados;
+\item legibilidad como Parquet mediante el mecanismo implementado;
+\item columnas mínimas para la familia y versión;
+\item coherencia entre servicio, año, mes y destino;
+\item ausencia de una versión ya validada con la misma identidad.
+\end{enumerate}
+
+El fichero no se considera válido únicamente por haber sido transferido. El flujo mantiene un estado intermedio hasta completar las validaciones críticas y solo entonces publica el activo en la ruta Bronze definitiva y actualiza PostgreSQL\@.
+
+En aquellos controles que requieran una librería no disponible directamente como procesador, NiFi puede invocar una utilidad encapsulada y versionada. Esta posibilidad se limita a validaciones concretas; la arquitectura evita reconstruir un segundo orquestador dentro de scripts auxiliares.
+
+\section{Rutas de éxito, fallo y cuarentena}
+
+Los FlowFiles se enrutan mediante relaciones y reglas explícitas. Procesadores como \texttt{RouteOnAttribute} permiten tomar decisiones basadas en atributos del flujo~\cite{nifi_routeattribute}. Conceptualmente se distinguen:
+
+\begin{description}
+\item[success] el activo puede avanzar;
+\item[retry] el fallo se considera transitorio;
+\item[failure] se ha producido un error operativo no recuperado;
+\item[quarantine] el contenido existe pero incumple un contrato crítico;
+\item[skipped] el activo ya estaba procesado o no requiere trabajo.
+\end{description}
+
+Esta clasificación se refleja también en \texttt{control.ingestion\_files}, de forma que el estado visual de NiFi y la auditoría histórica de PostgreSQL sean coherentes.
+
+\section{Conexión con PostgreSQL}
+
+NiFi utiliza un \textit{Controller Service} de conexión para centralizar URL JDBC, driver y configuración del pool~\cite{nifi_dbcp}. Las operaciones de lectura de estado pueden realizarse mediante procesadores SQL, mientras que las actualizaciones e inserciones se ejecutan mediante componentes de escritura de registros o SQL parametrizado~\cite{nifi_putdbrecord}.
+
+La conexión se reutiliza entre grupos de procesos. No se crean credenciales distintas en cada procesador ni se codifican contraseñas en propiedades versionadas.
+
+\section{Carga hacia el área relacional}
+
+Bronze continúa siendo Parquet. Para construir Silver, la transición hacia PostgreSQL se realiza por particiones o lotes, evitando cargar el histórico completo en memoria. La estrategia exacta de lectura Parquet y carga se sincronizará con la implementación final y se medirá sobre la máquina objetivo.
+
+NiFi coordina esta fase y registra su estado, pero las transformaciones semánticas permanecen en dbt. Una reejecución del mismo mes no debe añadir una segunda copia: la publicación relacional utiliza claves, particiones o estrategias de reemplazo explícitas.
+
+\section{Construcción de Silver con dbt}
+
+Los modelos Silver convierten cada familia en una representación analítica coherente. Se mantienen modelos especializados por servicio y posteriormente una proyección común de campos compatibles.
+
+Un modelo conceptual puede seguir el patrón:
+
+\begin{lstlisting}[language=SQL,caption={Esquema conceptual simplificado de una transformación Silver.}]
+select
+    'yellow' as service_type,
+    pickup_datetime,
+    dropoff_datetime,
+    pulocationid as pickup_location_id,
+    dolocationid as dropoff_location_id,
+    trip_distance,
+    extract(epoch from (dropoff_datetime - pickup_datetime))/60.0
+        as trip_duration_minutes,
+    total_amount,
+    source_file
+from {{ ref('stg_yellow_trips') }}
+where pickup_datetime is not null
+\end{lstlisting}
+
+NiFi desencadena la ejecución cuando la entrada requerida se encuentra disponible. El SQL definitivo incorpora reglas de calidad, columnas históricas y documentación de cada campo.
+
+\section{Tests de dbt y promoción}
+
+Los tests genéricos incluyen \texttt{not\_null}, \texttt{unique}, relaciones con dimensiones y valores aceptados. Se añaden tests singulares para reglas de negocio específicas. La ejecución de \texttt{dbt build} construye modelos y pruebas respetando dependencias.
+
+El resultado de dbt se comunica al flujo de control. Un fallo crítico impide continuar hacia las fases que dependen del modelo Gold válido. De este modo, NiFi controla la secuencia, pero dbt conserva autoridad sobre sus transformaciones y tests.
+
+\section{Construcción de Gold}
+
+Gold se construye después de Silver y de sus controles. Las dimensiones de fecha, hora y zona se materializan de forma estable; los hechos derivan claves y métricas; y los marts agregan el conjunto mínimo necesario para dashboards.
+
+\texttt{fact\_zone\_hourly\_demand} completa el dominio zona-hora para incluir ceros reales. Si solo se agregaran los viajes existentes, desaparecerían las horas sin demanda y el modelo predictivo interpretaría un problema de conteo truncado.
+
+\section{Fuentes externas}
+
+Las fuentes externas se implementan en grupos separados y convergen en dimensiones o tablas de referencia. La meteorología, calendario, festivos y geografía presentan cadencias diferentes de los viajes TLC\@. NiFi permite asignar planificaciones distintas a cada proceso sin desplegar schedulers adicionales~\cite{nifi_user_guide}.
+
+Los activos estáticos o de actualización poco frecuente no se descargan de nuevo en cada ejecución. El mismo principio de manifest y estado incremental se aplica a cada fuente.
+
+\section{Control de ejecuciones}
+
+Cada ejecución obtiene un \texttt{run\_id}. \texttt{pipeline\_runs} registra modo, rango temporal, servicios seleccionados, revisión Git y, cuando sea posible, versión del flujo. Las tareas relevantes escriben estados \texttt{PENDING}, \texttt{RUNNING}, \texttt{SUCCESS}, \texttt{FAILED}, \texttt{SKIPPED} o equivalentes.
+
+El estado global no se reduce a un booleano. Una fuente externa opcional puede fallar sin invalidar necesariamente todos los datos TLC, mientras que un fallo en una transformación crítica de Silver sí debe bloquear etapas posteriores.
+
+\section{Data Provenance}
+
+Además del esquema de control, NiFi conserva información de procedencia sobre el recorrido de los FlowFiles. La interfaz de Data Provenance permite buscar eventos, inspeccionar detalles y visualizar el linaje del objeto a través del flujo~\cite{nifi_user_guide}.
+
+Para la evaluación final se seleccionarán varios activos de demostración y se documentará su recorrido, por ejemplo:
+
+\begin{lstlisting}[caption={Recorrido conceptual de un activo TLC en NiFi.}]
+DISCOVER
+  -> CHECK_MANIFEST
+  -> INVOKE_HTTP
+  -> VALIDATE
+  -> WRITE_BRONZE
+  -> REGISTER_METADATA
+  -> TRIGGER_DBT
+\end{lstlisting}
+
+Esta evidencia complementa los logs y aporta una forma visual de demostrar trazabilidad.
+
+\section{Planificación}
+
+Los procesadores de entrada se configuran mediante planificación \textit{Timer Driven} o \textit{CRON Driven}, según la cadencia de la fuente~\cite{nifi_user_guide}. La descarga mensual de TLC, la meteorología y los activos estáticos pueden tener planificaciones independientes.
+
+El proyecto evita un contenedor scheduler separado. La planificación forma parte de la configuración del flujo y queda documentada junto con los Process Groups.
+
+\section{Activación de machine learning}
+
+El entrenamiento y la inferencia no se implementan como transformaciones visuales de NiFi. El grupo correspondiente activa el componente Python una vez que los features Gold requeridos están listos. Python se encarga de validación temporal, entrenamiento, métricas y persistencia de artefactos.
+
+El resultado se escribe en \texttt{fact\_model\_predictions} y \texttt{fact\_model\_metrics} o en las estructuras definitivas equivalentes. NiFi registra el estado de la ejecución, pero no reemplaza el código científico.
+
+\section{Modo demo}
+
+El modo demo procesa un subconjunto temporal pequeño y utiliza la misma topología de NiFi que el modo completo. La diferencia se expresa mediante parámetros. El criterio de aceptación es que un entorno limpio genere:
+
+\begin{itemize}
+\item activos Bronze válidos;
+\item estado de ingesta registrado;
+\item tablas Silver y Gold;
+\item tests ejecutados;
+\item predicciones de ejemplo cuando el perfil demo active ML\@;
+\item datasets consultables desde Superset;
+\item eventos de procedencia consultables en NiFi.
+\end{itemize}
+
+\section{Modo full}
+
+El modo completo utiliza el periodo 2018--2025 y los servicios configurados. El pipeline debe poder reanudarse sin volver a descargar meses correctamente validados.
+
+La duración final será \PipelineDuration{}. Esta cifra se medirá sobre una revisión concreta del repositorio y se desglosará por fases en el capítulo de resultados.
+
+\section{Pruebas automatizadas}
+
+La estrategia de pruebas combina:
+
+\begin{enumerate}
+\item validación del Docker Compose y healthchecks;
+\item comprobación de disponibilidad de NiFi y de los grupos de procesos esperados;
+\item tests de idempotencia de la ingesta sobre una muestra;
+\item rutas de fallo, retry y cuarentena;
+\item tests de dbt sobre Silver y Gold;
+\item tests Python del componente de machine learning;
+\item una prueba end-to-end del modo demo.
+\end{enumerate}
+
+La prueba end-to-end es el criterio principal de reproducibilidad. El resultado debe demostrar conexión real entre NiFi, Bronze, PostgreSQL, dbt, ML y Superset.
+
+\section{Rendimiento y uso de recursos}
+
+La introducción de NiFi incorpora un proceso Java persistente y repositorios internos, por lo que el consumo de memoria y disco se incluirá en la evaluación. La concurrencia de procesadores se dimensiona de forma conservadora para un equipo de 32 GB y se evita ejecutar simultáneamente tareas de ingesta masiva y entrenamientos especialmente costosos.
+
+Las optimizaciones del plano analítico siguen basándose en lectura columnar, procesamiento por particiones, cargas por lotes, índices justificados, materializaciones incrementales y marts preagregados.
+
+\section{Documentación operativa}
+
+El repositorio incorpora instrucciones para inicialización, acceso a NiFi, restauración o importación del flujo, configuración de Parameter Contexts, ejecución de pruebas, reconstrucción de Superset y resolución de incidencias frecuentes. La documentación operativa forma parte del producto: una plataforma que solo puede ejecutar su autor no cumple el objetivo de reproducibilidad.

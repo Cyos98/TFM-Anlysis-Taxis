@@ -1,0 +1,211 @@
+\chapter{Diseño de la arquitectura}\label{chap:arquitectura}
+
+\section{Requisitos de arquitectura}
+
+La arquitectura se diseña a partir de requisitos funcionales y no funcionales. Entre los funcionales se encuentran descubrir y descargar datos, conservar el dato de origen, transformar y validar los registros, generar modelos analíticos, entrenar modelos predictivos y servir dashboards. Entre los no funcionales destacan reproducibilidad, idempotencia, trazabilidad, mantenibilidad, recuperación ante fallos y capacidad de ejecución con recursos locales.
+
+El equipo objetivo dispone de Windows, 32 GB de RAM, procesador AMD Ryzen, aproximadamente 1 TB de almacenamiento total y Docker Desktop. Esta configuración obliga a controlar el uso de memoria y evita asumir un clúster distribuido. La solución debe trabajar tanto con un modo demo reducido como con un modo completo que procese el histórico configurado.
+
+\section{Evolución de la arquitectura}
+
+La primera iteración del proyecto utilizaba scripts Python para descarga, validación inicial y coordinación de tareas, junto con planificación mediante cron. Ese enfoque permitió materializar rápidamente el pipeline y validar la viabilidad funcional. Sin embargo, a medida que aumentaron las fuentes, estados y requisitos de observabilidad, la lógica de control comenzó a adquirir un peso comparable al procesamiento de datos.
+
+La arquitectura final migra la capa de ingesta y automatización hacia Apache NiFi. El objetivo no es sustituir Python de forma indiscriminada, sino utilizar una herramienta especializada allí donde aporta mayor valor: programación del flujo, enrutamiento, reintentos, configuración, visualización operacional y procedencia. La implementación Python original se conserva como referencia en \texttt{Ingesta Python/}; dbt, PostgreSQL, Superset y el código de machine learning permanecen en la arquitectura principal.
+
+\section{Comparación de alternativas de ingesta}
+
+La decisión de migrar no se basa únicamente en preferencia tecnológica. La \cref{tab:python-vs-nifi} resume las diferencias relevantes para el alcance del TFM\@.
+
+\begin{table}[H]
+\centering
+\caption{Comparación entre la implementación inicial y la arquitectura NiFi.}%
+\label{tab:python-vs-nifi}%
+\small
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Criterio} & \textbf{Python + cron} & \textbf{Apache NiFi} \\
+\midrule
+Control del flujo & Código explícito y flexible, pero requiere implementar el coordinador & Grafo visual con relaciones y colas explícitas \\
+Planificación & Cron externo & Timer/CRON integrado por procesador \\
+Reintentos & Lógica propia & Rutas y políticas configurables dentro del flujo \\
+Trazabilidad & Logs y tablas de control & Logs, tablas de control y Data Provenance \\
+Configuración & Variables/YAML propios & Parameter Contexts y variables de entorno \\
+Versionado & Código Git convencional & Definición de flujo versionable mediante clientes Git \\
+Coste operativo & Menor huella base & Mayor consumo de memoria y repositorios internos \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+La alternativa Python continúa siendo técnicamente válida y se conserva como evidencia de la primera fase. NiFi se selecciona porque reduce la cantidad de infraestructura de control implementada específicamente para el TFM y hace visible el estado del flujo sin trasladar a NiFi la transformación analítica ni el machine learning.
+
+\section{Visión general}
+
+La \cref{fig:architecture-overview} representa el flujo lógico. Apache NiFi obtiene los activos TLC y las fuentes externas, registra su estado y preserva los Parquet originales en Bronze. La carga relacional y dbt construyen Silver y Gold. El módulo de machine learning consume features Gold y persiste predicciones y métricas. Superset consulta únicamente modelos preparados para consumo.
+
+\begin{figure}[H]
+\centering
+\missingfigurebox{architecture\_overview.pdf}
+\caption{Arquitectura lógica end-to-end con Apache NiFi como capa de ingesta y automatización.}%
+\label{fig:architecture-overview}%
+\end{figure}
+
+\section{Capa Bronze}
+
+Bronze representa la copia más fiel posible de la fuente publicada. NiFi no reescribe los ficheros descargados para homogeneizarlos. Si se requiere una representación transformada para acelerar una fase posterior, dicha representación pertenece a Silver o a un área temporal claramente separada.
+
+La estructura física propuesta es:
+
+\begin{lstlisting}[caption={Estructura lógica del almacenamiento Bronze.}]
+data/
+  bronze/
+    tlc/
+      yellow/year=YYYY/month=MM/
+      green/year=YYYY/month=MM/
+      fhv/year=YYYY/month=MM/
+      fhvhv/year=YYYY/month=MM/
+    weather/
+    geography/
+    calendar/
+  quarantine/
+  samples/
+\end{lstlisting}
+
+La tabla \texttt{control.ingestion\_files} registra el ciclo de vida de cada activo. La existencia de una ruta en disco no es suficiente para considerar un fichero correctamente procesado.
+
+\section{Capa Silver}
+
+Silver contiene datos tipados, validados y semánticamente normalizados. El principal reto es integrar esquemas diferentes sin eliminar información valiosa. Se utiliza una estrategia de modelos por servicio en staging y una proyección común en Silver.
+
+Cada familia puede exponer un modelo de staging propio, por ejemplo \texttt{stg\_yellow\_\allowbreak{}trips}, junto con modelos equivalentes para Green, FHV y HVFHV\@. Los campos comunes se proyectan a una estructura homologada mediante reglas explícitas. Los campos económicos ausentes se representan como nulos y no como cero, porque cero tendría un significado cuantitativo distinto de \textit{no disponible}.
+
+\section{Capa Gold}
+
+Gold contiene modelos orientados a consumo. Se combinan un modelo dimensional y \textit{data marts} agregados. El modelo dimensional favorece exploración flexible; los marts optimizan consultas recurrentes y fijan definiciones de KPI\@.
+
+La arquitectura inicial incluye:
+
+\begin{itemize}
+\item \texttt{dim\_date};
+\item \texttt{dim\_time};
+\item \texttt{dim\_taxi\_zone};
+\item \texttt{dim\_service\_type};
+\item \texttt{dim\_payment\_type};
+\item \texttt{dim\_weather};
+\item \texttt{fact\_trip};
+\item \texttt{fact\_zone\_hourly\_demand};
+\item \texttt{fact\_zone\_daily\_performance};
+\item \texttt{fact\_model\_predictions};
+\item \texttt{fact\_model\_metrics};
+\item marts de movilidad, comparación, oportunidad y monitorización predictiva.
+\end{itemize}
+
+\section{Modelo dimensional}
+
+La granularidad de \texttt{fact\_trip} es un viaje validado. La de \texttt{fact\_zone\_hourly\_demand} es una combinación de servicio, zona de recogida y hora. Esta segunda tabla es fundamental porque alinea el almacén analítico con el dataset de machine learning.
+
+\begin{figure}[H]
+\centering
+\missingfigurebox{star\_demand.pdf}
+\caption{Esquema estrella simplificado para la demanda horaria por zona.}%
+\label{fig:star-demand}%
+\end{figure}
+
+\section{NiFi como capa de ingesta y automatización}
+
+NiFi organiza el flujo mediante \textit{Process Groups}. La separación propuesta distingue control del pipeline, descubrimiento TLC, descarga, validación Bronze, ingestión de fuentes externas, activación de dbt, activación de ML y tratamiento de errores. Los procesadores se conectan mediante relaciones explícitas y colas, de manera que cada transición sea visible y monitorizable~\cite{nifi_user_guide}.
+
+\begin{figure}[H]
+\centering
+\missingfigurebox{nifi\_process\_groups.pdf}
+\caption{Organización conceptual de los grupos de procesos de Apache NiFi.}%
+\label{fig:nifi-process-groups}%
+\end{figure}
+
+La arquitectura utiliza el motor tradicional de ejecución para los grupos que requieren planificación CRON o persistencia de colas. NiFi permite definir planificación \textit{Timer Driven} y \textit{CRON Driven}, así como controlar la concurrencia de los procesadores~\cite{nifi_user_guide}. Esta capacidad sustituye el contenedor de cron de la implementación anterior.
+
+\section{Parameter Contexts}
+
+Los valores que cambian entre entornos no se incrustan en los procesadores. Se agrupan mediante \textit{Parameter Contexts}, por ejemplo para TLC, PostgreSQL, rutas, configuración global del pipeline y fuentes externas. La sintaxis de parámetros de NiFi permite referenciarlos desde las propiedades de los componentes y distinguir valores sensibles~\cite{nifi_user_guide}.
+
+Entre los parámetros previstos se encuentran:
+
+\begin{itemize}
+\item rango temporal de ingesta;
+\item modo \texttt{demo} o \texttt{full};
+\item rutas Bronze y cuarentena;
+\item host, puerto y base de datos PostgreSQL\@;
+\item límites de reintentos y timeouts;
+\item configuración de fuentes externas.
+\end{itemize}
+
+Las credenciales no se versionan con valores reales.
+
+\section{Esquema de control}
+
+El esquema \texttt{control} evita almacenar el estado únicamente dentro del canvas o de ficheros locales. Se proponen cuatro entidades principales:
+
+\begin{description}
+\item[\texttt{pipeline\_runs}] una fila por ejecución global, con identificador, parámetros, commit, inicio, fin y estado.
+\item[\texttt{pipeline\_tasks}] estado y duración de cada etapa relevante.
+\item[\texttt{ingestion\_files}] inventario de activos descubiertos, descargados, validados y procesados.
+\item[\texttt{data\_quality\_results}] resultado resumido de validaciones y referencia al detalle.
+\end{description}
+
+NiFi consulta y actualiza estas entidades mediante conexiones JDBC administradas. La base de datos proporciona un estado persistente independiente de la vida del contenedor.
+
+\section{Idempotencia}
+
+Un proceso es idempotente si repetirlo con la misma entrada no modifica el resultado de forma no deseada. En la arquitectura NiFi, la idempotencia se implementa combinando estado de PostgreSQL, atributos del FlowFile y comprobaciones físicas. Antes de descargar o publicar un activo se consulta su clave lógica y estado; un fichero validado no se transfiere de nuevo salvo que la política detecte una nueva versión o una inconsistencia.
+
+No se confía únicamente en \textit{``si el fichero existe, saltarlo''}. Un fichero puede existir parcialmente, haber cambiado en origen o pertenecer a una ejecución fallida. Por ello, la decisión combina presencia, tamaño, checksum cuando resulte viable, estado y metadatos de procedencia.
+
+\section{Data Provenance y observabilidad}
+
+NiFi registra eventos de procedencia a medida que los FlowFiles atraviesan el sistema. Su interfaz permite consultar qué ocurrió con un objeto, examinar eventos y visualizar su linaje a lo largo del flujo~\cite{nifi_user_guide}. Esta capacidad complementa las tablas de control y resulta especialmente útil para la defensa del TFM, porque permite demostrar el recorrido de un fichero desde la fuente hasta Bronze y las etapas posteriores.
+
+La observabilidad se apoya en cuatro niveles:
+
+\begin{enumerate}
+\item estado visual y colas de NiFi;
+\item \textit{bulletins} y logs del servicio;
+\item \textit{Data Provenance} para seguimiento del FlowFile;
+\item tablas \texttt{control} de PostgreSQL para auditoría histórica.
+\end{enumerate}
+
+Las métricas operativas incluyen número de ficheros descubiertos, descargados, omitidos y fallidos, bytes transferidos, tiempos por fase y resultados de calidad.
+
+\section{Reintentos y tratamiento de errores}
+
+Los errores transitorios, como timeouts HTTP o indisponibilidad temporal de PostgreSQL, siguen rutas de reintento con límites configurados. Los errores deterministas de esquema o validación no se reintentan indefinidamente. Tras alcanzar el máximo, el activo se marca como \texttt{FAILED} o \texttt{QUARANTINED} y conserva información suficiente para diagnosticar la causa.
+
+La topología mantiene un grupo de procesos específico para errores. Esta separación evita mezclar el camino nominal con reglas de recuperación y permite centralizar métricas y política de reintentos.
+
+\section{Versionado de los flujos}
+
+Los flujos deben poder reconstruirse a partir del repositorio. La estrategia prioriza los clientes de registro basados en Git disponibles en NiFi 2. La página oficial del proyecto NiFi Registry indica que el Registry independiente fue deprecado en 2026 y recomienda los clientes Git para GitHub, GitLab, Bitbucket y Azure DevOps~\cite{nifi_registry}.
+
+Para este TFM se adopta GitHub como destino coherente con el repositorio público. Los artefactos de flujo y la configuración no sensible se versionan; tokens, claves o parámetros sensibles quedan fuera del historial.
+
+\section{Integración con dbt y machine learning}
+
+NiFi coordina, pero no absorbe la lógica propia de dbt o del modelado predictivo. Una vez que los activos de entrada requeridos están disponibles y validados, el flujo desencadena la construcción Silver/Gold.\ dbt continúa siendo responsable del grafo de dependencias SQL y de sus tests.
+
+De forma análoga, el entrenamiento y la inferencia permanecen en Python. NiFi actúa como punto de activación y control, mientras el código ML conserva su estructura de módulos, configuración, métricas y artefactos. Esta separación permite probar cada componente de manera independiente.
+
+\section{Seguridad y secretos}
+
+El repositorio será público. Las credenciales se suministran mediante \texttt{.env}, Parameter Contexts sensibles o mecanismos equivalentes, y se excluyen del historial Git. El flujo versionado no debe contener tokens de GitHub, contraseñas de PostgreSQL ni credenciales administrativas de NiFi.
+
+Se revisarán también la implementación Python histórica, notebooks y configuraciones en busca de rutas locales, información empresarial o secretos antes de la publicación.
+
+\section{Modo demo y modo full}
+
+El modo demo utiliza una ventana temporal pequeña suficiente para demostrar todas las fases. Debe completar la descarga, validación, transformación, tests, inferencia y disponibilidad de datos para Superset sin requerir cientos de gigabytes.
+
+El modo full procesa el rango configurado desde 2018 hasta 2025 y todos los servicios seleccionados. Ambos modos reutilizan los mismos Process Groups; cambian los Parameter Contexts o parámetros de ejecución. Esta propiedad evita disponer de una demo artificialmente separada de la arquitectura real.
+
+\section{Reproducibilidad}
+
+Se considera que la arquitectura es reproducible cuando una tercera persona puede clonar el repositorio, configurar variables no sensibles, ejecutar Docker Compose, restaurar o importar la definición del flujo y obtener un entorno funcional. Para los resultados experimentales se añade una condición adicional: identificar versiones de datos, código, parámetros y flujos utilizados.
+
+La reproducibilidad se comprobará mediante una prueba end-to-end en modo demo y quedará documentada en el apartado correspondiente del repositorio.

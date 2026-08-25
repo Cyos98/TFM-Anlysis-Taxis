@@ -28,12 +28,36 @@
 
 \usepackage[utf8]{inputenc} 
 \usepackage[spanish,noabbrev,nameinlink]{cleveref}
+\usepackage{float}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Para conseguir que la tabla de contenido no salga en rojo
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \hypersetup{ colorlinks=true, linkcolor=black, urlcolor=cyan, }
 \raggedbottom%
+\emergencystretch=3em
+
+% Valores provisionales hasta ejecutar el pipeline completo.
+\newcommand{\TotalTrips}{pendiente}
+\newcommand{\TotalBronzeGB}{pendiente}
+\newcommand{\PipelineDuration}{pendiente}
+\newcommand{\missingfigurebox}[1]{%
+  \fbox{\begin{minipage}{0.82\textwidth}
+    \centering\vspace{1.2cm}
+    \textit{Figura pendiente de generar: #1}
+    \vspace{1.2cm}
+  \end{minipage}}%
+}
+\newcommand{\placeholderfigure}[2]{%
+  \begin{figure}[H]
+    \centering
+    \missingfigurebox{#1}
+    \caption{#2}
+  \end{figure}%
+}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                        ALTRES PAQUETS I DEFINICIONS                         %
@@ -107,7 +131,11 @@ de Movilidad Urbana en Nueva York}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \input{03.Capitulos/01.Contexto}
-
+\input{03.Capitulos/02.Estado del arte.tex}
+\input{03.Capitulos/03.Marco Tecnologico.tex}
+\input{03.Capitulos/04.Fuentes de datos.tex}
+\input{03.Capitulos/05.Arquitectura.tex}
+\input{03.Capitulos/06.Pipeline.tex}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                                BIBLIOGRAFIA                                 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

@@ -44,26 +44,14 @@ ml/artifacts/*
 
 # Elementos locales privados del TFM
 /00 Papeleos/
-/01 Documentación/
 /99 Referencias/
 
 # Ingesta Python es código preservado y debe versionarse.
 
-/03 Proyecto/Ingesta Python/old/Conexión Cremaet.txt
-/03 Proyecto/data/
+/03 Proyecto/99.Ingesta Python
 
-# MEMORIA 
-02 Memoria/main.aux
-02 Memoria/main.fls
-02 Memoria/main.lof
-02 Memoria/main.lot
-02 Memoria/main.toc
-02 Memoria/main.out
-02 Memoria/main.log
-02 Memoria/main.fdb_latexmk
-02 Memoria/main.synctex.gz
-02 Memoria/main.bbl
-02 Memoria/main.blg
-02 Memoria/main.synctex(busy)
-02 Memoria/main.txt
-02 Memoria/pdflatex14588.fls
+/03 Proyecto/00.data
+
+# Configuración del repositorio y del agente
+AGENTS.md
+/.github/
