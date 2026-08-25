@@ -49,7 +49,6 @@ ml/artifacts/*
 # Ingesta Python es código preservado y debe versionarse.
 
 /03 Proyecto/99.Ingesta Python
-
 /03 Proyecto/00.data
 
 # Configuración del repositorio y del agente
